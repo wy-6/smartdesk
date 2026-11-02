@@ -1,0 +1,96 @@
+# ============================================================
+# SmartDesk 应用配置
+# 敏感信息一律走环境变量，不写死在仓库里（验收清单明确要求）
+# ============================================================
+spring:
+  application:
+    name: smartdesk
+
+  # ---------------- 数据库 ----------------
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:smartdesk}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # ---------------- Jackson / JSON ----------------
+  # Spring Boot 4 默认使用 Jackson 3（包名 tools.jackson）。
+  # 两个 Boot 4 变化：
+  # 1) WRITE_DATES_AS_TIMESTAMPS 从 SerializationFeature 移到了
+  #    DateTimeFeature，配置路径随之从 spring.jackson.serialization.*
+  #    改为 spring.jackson.datatype.datetime.*。写错路径启动会直接失败：
+  #    "No enum constant tools.jackson.databind.SerializationFeature.xxx"
+  # 2) Jackson 3 默认按属性名字母序序列化。测试里比较 JSON 原始字符串时，
+  #    要么改用 jsonPath 断言，要么显式关掉：
+  #    spring.jackson.mapper.sort-properties-alphabetically: false
+  jackson:
+    datatype:
+      datetime:
+        # 日期输出成 ISO-8601 字符串而不是时间戳数字
+        write-dates-as-timestamps: false
+    time-zone: Asia/Shanghai
+
+  # ---------------- 数据初始化 ----------------
+  sql:
+    init:
+      # schema.sql 由 src/main/resources/db/schema.sql 提供
+      mode: never
+
+# ---------------- MyBatis-Plus ----------------
+mybatis-plus:
+  # 开启驼峰命名自动映射：owner_id -> ownerId
+  configuration:
+    map-underscore-to-camel-case: true
+    # 开发阶段打印 SQL 和参数，定位问题非常有用
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    banner: false
+    db-config:
+      # 主键策略：数据库自增
+      id-type: auto
+      # 逻辑删除：删除时把 deleted 置 1，而不是真的 DELETE
+      # 面试可讲：为什么知识库场景更适合逻辑删除（可追溯、可恢复）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ---------------- 服务端口 ----------------
+# 注意：不要写死 8080。本机 8080 可能被占用，
+# 用环境变量 SERVER_PORT 覆盖，改动零成本。
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+# ---------------- Actuator ----------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# ---------------- 日志 ----------------
+logging:
+  level:
+    root: INFO
+    com.smartdesk: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+# ---------------- Spring AI（第 3 周启用，现在先注释掉避免启动报错）----------------
+# spring:
+#   ai:
+#     openai-sdk:
+#       api-key: ${OPENAI_API_KEY}
+#       chat:
+#         options:
+#           model: gpt-5-mini
+#           temperature: 0.7

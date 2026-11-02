@@ -1,0 +1,40 @@
+# ============ Maven ============
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ============ IDE ============
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+nb-configuration.xml
+
+# ============ 日志 ============
+*.log
+logs/
+
+# ============ 系统文件 ============
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============ 敏感信息：绝对不能提交 ============
+# 验收清单明确要求「没有将 API Key 提交到代码仓库」
+.env
+.env.*
+*.pem
+*.key
+application-local.yml
+application-local.properties
+
+# ============ 本地数据库文件 ============
+*.sqlite
+*.db
+data/
