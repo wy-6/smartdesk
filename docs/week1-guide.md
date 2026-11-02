@@ -16,7 +16,44 @@
 | Spring Boot | **4.1.2** | 不是 3.x，原因见下 |
 | Spring AI | 2.0.1 | 第 3 周用，BOM 已预先引入 |
 | MyBatis-Plus | 3.5.17 | 必须用 `boot4` 专用 starter |
-| MySQL | 8.0.46 | 本机已装，端口 3306 |
+| MySQL | 8.0.46 | 本机已装（3306，root 密码未知）；另有专用 dev 实例（3307） |
+
+### 数据库怎么连（已实测通）
+
+本机 MySQL 8.0.46 跑在 **3306**，但 root 密码未知。
+为了不改动你原有的 MySQL 实例，项目额外起了一个**专用 dev 实例**：
+
+| 项 | 本机原有实例 | 项目 dev 实例 |
+|----|-------------|--------------|
+| 端口 | 3306 | **3307** |
+| 数据目录 | `C:\ProgramData\MySQL\MySQL Server 8.0\Data` | `C:\Users\86181\.workbuddy\mysql-dev\data` |
+| root 密码 | 未知 | `smartdesk_root` |
+| 库 | — | `smartdesk`（含 `task` 表） |
+
+```bash
+# 启动 dev 实例（首次会自动初始化数据目录 + 建库建表）
+bash scripts/start-mysql-dev.sh start
+
+# 查状态和表里的数据
+bash scripts/start-mysql-dev.sh status
+
+# 停止
+bash scripts/start-mysql-dev.sh stop
+
+# 清库重来
+bash scripts/start-mysql-dev.sh reset
+```
+
+连 dev 实例时设置环境变量：
+
+```bash
+export MYSQL_PORT=3307
+export MYSQL_PASSWORD=smartdesk_root
+```
+
+> 如果你之后找回或重置了本机 3306 的 root 密码，直接用它即可：
+> `MYSQL_PORT=3306 MYSQL_PASSWORD=<你的密码>`，无需改任何代码。
+
 
 ### 本周踩过的 5 个坑（省你 2~3 天）
 
@@ -414,6 +451,8 @@ curl http://localhost:18080/api/tasks
 ```
 smartdesk/
 ├── pom.xml                                # 版本锁定：Boot 4.1.2 / Spring AI 2.0.1 / MP 3.5.17
+├── compose.yaml                           # MySQL + Redis 的 Docker 编排（备选方案）
+├── scripts/start-mysql-dev.sh             # 专用 MySQL dev 实例（3307）一键脚本
 ├── docs/week1-guide.md                    # 本文件
 └── src/
     ├── main/java/com/smartdesk/
@@ -467,7 +506,33 @@ smartdesk/
 
 ---
 
-## 5. 每天提交规范
+## 5. 本周交付物验收状态（已实测）
+
+以下全部在本机真实跑通，可以直接对照：
+
+| 验收项 | 命令 | 结果 |
+|--------|------|------|
+| 编译 | `mvn -B -DskipTests compile` | BUILD SUCCESS |
+| 单元测试 + Web 测试 | `mvn -B test` | **Tests run: 18, Failures: 0, Errors: 0** |
+| 打包 | `mvn -B -DskipTests package` | `target/smartdesk-0.1.0-SNAPSHOT.jar` |
+| 应用启动 | `java -jar target/*.jar --server.port=18080` | Started in ~6.5s |
+| 健康检查 | `curl /api/health` | `{"success":true,"data":{"status":"UP",...}}` |
+| 创建任务（落库） | `curl -X POST /api/tasks` | 返回 `id=1`，MySQL 里可见 |
+| 列表查询 | `curl /api/tasks` | 按 priority 倒序正确返回 |
+| 状态过滤 | `curl "/api/tasks?status=TODO"` | 过滤正确 |
+| 分页 | `curl "/api/tasks?page=2&pageSize=2"` | 返回第 2 页，无重叠 |
+| 参数校验失败 | 空标题 + priority=9 | **400** `VALIDATION_ERROR`，提示两条 |
+| 非法 JSON | `{not-json` | **400** `MALFORMED_REQUEST` |
+| 非法状态值 | `?status=NOT_A_STATUS` | **400** `INVALID_STATUS` |
+| 任务不存在 | `/api/tasks/999` | **404** `NOT_FOUND` |
+| 接口不存在 | `/api/nonexistent` | **404**（不是 500） |
+| **重启后数据仍在** | 停应用 → 重启 → 查列表 | **数据完整保留** ✅ |
+
+最后一条是第 1 周最关键的验收点：**它证明数据真的进了 MySQL，而不是躺在内存里**。
+
+---
+
+## 6. 每天提交规范
 
 ```bash
 git checkout -b feature/day1-task-domain
