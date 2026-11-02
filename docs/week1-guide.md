@@ -110,6 +110,30 @@ No qualifying bean of type 'TaskMapper' available
 因为 boot3 starter 的自动配置类根本没被加载。
 → **必须用 `mybatis-plus-spring-boot4-starter`（3.5.15+）。**
 
+**坑 6：应用还在跑的时候，`mvn clean` 会失败**
+
+```
+Failed to delete target/smartdesk-0.1.0-SNAPSHOT.jar:
+另一个程序正在使用此文件，进程无法访问
+```
+
+jar 被运行中的 JVM 锁住了。
+→ **先停掉应用再 `mvn clean`**。Windows 上尤其明显（文件不能被删除），
+Linux 上通常表现为 `mvn clean` 成功但新 jar 覆盖不了旧文件。
+
+**坑 7：MySQL 数据目录不能用中文路径**
+
+mysqld 初始化时如果 `datadir` 路径含中文，会直接失败：
+
+```
+Can't create directory 'D:\a应聘\...\data\'
+The designated data directory ... is unusable
+```
+
+→ **MySQL 的数据目录必须放在纯 ASCII 路径下**
+（dev 实例用的是 `C:\Users\86181\.workbuddy\mysql-dev`）。
+注意这只影响 MySQL 自身的数据目录，项目代码放中文路径没问题。
+
 ---
 
 ## 1. 每天的固定节奏（7 小时有效学习时间）
@@ -435,7 +459,7 @@ mvn -B test
 > 就不要进入 Agent 开发。用 1～2 天补齐这一环节，比在后面返工便宜得多。
 
 ```bash
-# 全绿
+# 全绿（先停掉正在运行的应用，否则 clean 会因文件锁失败）
 mvn -B clean test
 # 应用能起
 mvn -B -DskipTests package && java -jar target/smartdesk-0.1.0-SNAPSHOT.jar --server.port=18080
