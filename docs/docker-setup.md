@@ -104,10 +104,11 @@ docker compose down                  # 停止（保留数据）
 
 ---
 
-## 三、路径 B：云端 CI 代跑（零本地依赖，立即可用）
+## 三、路径 B：云端 CI 代跑（零本地依赖）✅ 已验证通过
 
 > 不装任何东西，把验证交给 GitHub 的 Linux runner。
-> 这是**当前状态下唯一能"真跑起来"的验证方式**，工作流已写好：
+> **2026-11-06 实测结果：全部通过（1 分 50 秒）**
+> 运行记录：https://github.com/wy-6/smartdesk/actions/runs/42182196028
 
 `.github/workflows/docker-verify.yml`（`docker-verify`）：
 
@@ -119,21 +120,27 @@ docker compose down                  # 停止（保留数据）
    （验证 ENTRYPOINT 里的 `exec` 让 SIGTERM 直达 JVM）
 6. **失败留证**：无论成败导出容器日志为 artifact
 
-### 启用步骤
+### 实测证据（每次跑都能在日志里看到）
 
-```bash
-# 1) 在 GitHub 建一个私有仓库（free 足够，Actions 每月 2000 分钟免费额度）
-#    gh repo create smartdesk --private --source=. --push
-#    （没有 gh 就在网页上建仓 + git remote add + git push）
+| 验证点 | CI 日志实际输出 |
+|--------|-----------------|
+| 测试 | `Tests run: 41, Failures: 0, Errors: 0` |
+| 容器健康 | `Container smartdesk-mysql Healthy` / `smartdesk-redis Healthy` / **`smartdesk-app Healthy`** |
+| 应用启动 | `The following 1 profile is active: "prod"` + `Started SmartDeskApplication in 3.391 seconds` |
+| 接口冒烟 | `=== 冒烟测试全部通过 ===` |
+| 优雅停机 | `app 容器停机耗时 0s（<10s 说明收到了 SIGTERM 正常退出）` |
 
-# 2) 推上去之后，手动触发一次：
-#    GitHub 仓库页 → Actions → docker-verify → Run workflow
+> `smartdesk-app Healthy` 这一行同时证明了三件事：**curl 装上了**（HEALTHCHECK 能跑）、
+> **日志目录可写**（应用没在启动时挂）、**prod profile 能正常工作**。
+> 停机 0s 则证明 `exec` 生效、SIGTERM 直达 JVM。
+> 换句话说，**下面第五节那 4 个 bug 的修复，全部在真实容器里验证过了。**
 
-# 3) 绿勾 = Dockerfile / compose.yaml / 镜像行为全部通过真实验证
-```
+### 本仓库当前状态
 
-> **注意**：冒烟测试用 `localhost:18080`，在 runner 上直接可达（compose 把
-> app 端口映射出来了），不需要额外配置。
+- 仓库：https://github.com/wy-6/smartdesk （公开）
+- 徽章已加到 README 首行，绿勾 = 上述验证全通过
+- 触发方式：push 到 main 且改动了 `Dockerfile` / `compose.yaml` / `src/**` / `pom.xml` /
+  工作流自身时自动触发；也可在 Actions 页面点 **Run workflow** 手动触发
 
 ---
 
@@ -198,13 +205,17 @@ SIGKILL 强杀 —— 优雅停机完全失效。
 
 ---
 
-## 六、决策建议：怎么选
+## 六、当前状态与后续
 
-| 你的情况 | 建议 |
-|----------|------|
-| 只想尽快确认 Dockerfile/compose 是对的 | **路径 B（今天就能做）**：推 GitHub，点一下 Run workflow |
-| 准备把项目部署到服务器/继续第 3~8 周 | **路径 A（值得投资一次）**：30~60 分钟，之后本机随时能跑 compose |
-| 短期都不折腾 | 路径 C 已完成；文档里 4 个 bug 的修复已覆盖最可能的启动失败原因 |
+| 路径 | 状态 | 说明 |
+|------|------|------|
+| **C 离线静态** | ✅ 已完成 | hadolint 0 告警；compose config 校验通过 |
+| **B 云端 CI** | ✅ **已验证通过** | 构建 + 编排 + 冒烟 + 优雅停机全绿（1m50s） |
+| **A 本机 Docker** | ⏳ 未做（可选） | 需要你解除 `wsl.exe` 封禁 + 装 Docker Desktop |
 
-**推荐顺序：B 先行（10 分钟出结果），A 在周末做一次。**
-两条都绿了，第 2 周 Day 12 的验收就完整闭环了。
+**Day 12 的容器化验收已经闭环了** —— 镜像能构建、三个容器能起、接口能跑通、
+能优雅停机，这些都有 CI 日志作为证据，不再是"写好了但没验证"。
+
+路径 A 现在只是一个**便利性**选项，不再是必需项：如果你希望以后在本地
+随时 `docker compose up` 起来看效果（比如第 3 周调 RAG 时想验证部署形态），
+就按第二节做一次；不做也不影响任何验收。
