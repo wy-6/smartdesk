@@ -480,16 +480,72 @@ Lua 而非 `GETDEL`：开发环境 Redis 5.0.14 不支持 `GETDEL`（需 6.2+）
 
 ---
 
+### 7.6 RAG 知识库（Week5）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  POST /api/knowledge/documents（导入）                        │
+│    原始字节 → DocumentTextExtractor（按页）→ Chunker（可配置） │
+│    → EmbeddingModel（Spring AI 接口）→ kb_chunk              │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  POST /api/knowledge/search（独立检索，不经过模型）             │
+│    查询 → Embedding → VectorStore.similaritySearch            │
+│    SQL: WHERE owner_id = ?  ← 过滤在 SQL，不在内存             │
+│    → 余弦排序 → 阈值 → Top-K → 片段/来源/分块ID/分数          │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  POST /api/knowledge/ask（问答）                              │
+│    检索为空 → 直接拒答（不调模型）                              │
+│    否则 → 组装【资料】+ 编号 → 模型回答 → 引用对齐校验           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 三个硬约束
+
+| 约束 | 实现 | 测试守着 |
+|---|---|---|
+| 没有 owner 过滤的检索一律拒绝 | `similaritySearch` 抛 `IllegalArgumentException` | `MySqlKnowledgeVectorStoreTest` |
+| 越权访问返回 404（不泄露存在性） | `requireDocument(ownerId, id)` | `KnowledgeIntegrationTest` |
+| 引用只能来自检索结果 | `citations` 由检索结果生成；越界编号记入 `unsupportedMarkers` | `RagEvaluationTest`（恒为 0） |
+
+#### 表结构
+
+| 表 | 作用 | 关键字段 |
+|---|---|---|
+| `kb_document` | 文档元数据 | `owner_id` / `content_hash`（重复导入判定）/ `chunk_count` |
+| `kb_chunk` | 切片 + 向量 | `owner_id`（冗余）/ `chunk_index` / `page_no` / `embedding` BLOB / `embedding_dim` |
+
+#### 向量存储选型
+
+实现 Spring AI 官方 `VectorStore` 接口的 MySQL 版本，而不是官方内存版 `SimpleVectorStore`
+（**它的过滤在内存里做**，违反本项目"过滤下沉到 SQL"的硬约定）。
+精确检索（候选集全量算余弦），不是 ANN —— 万级 chunk 内可接受。
+
+#### 错误码新增
+
+| 场景 | 错误码 | HTTP |
+|---|---|---|
+| 文档为空 / 无有效内容 | `KNOWLEDGE_DOCUMENT_EMPTY` | 400 |
+| 文档超出长度上限 | `KNOWLEDGE_DOCUMENT_TOO_LARGE` | 400 |
+| 不支持的格式 | `KNOWLEDGE_UNSUPPORTED_FORMAT` | 400 |
+| 解析失败 | `KNOWLEDGE_PARSE_FAILED` | 400 |
+| 文档不存在 / 不属于当前用户 | `NOT_FOUND` | 404 |
+
+---
+
 ## 8. 测试策略
 
 ```
-src/test/java/com/smartdesk/                     合计 156 个
+src/test/java/com/smartdesk/                     合计 195 个
 ├── security/JwtServiceTest.java            7 个 —— JWT 签发/篡改/过期/异密钥
 ├── task/service/TaskServiceImplTest.java   13 个 —— Service 逻辑（mock Mapper）
 ├── task/controller/TaskControllerTest.java 14 个 —— Web 切片（mock Service）
 ├── user/service/UserServiceImplTest.java    7 个 —— BCrypt / 用户枚举防护
 ├── task/TaskIntegrationTest.java            9 个 —— 真实 MySQL 全链路
-└── ai/                                     106 个 —— Week3 + Week4
+├── ai/                                     106 个 —— Week3 + Week4
     ├── service/TaskDraftParserTest.java     14 —— JSON 抠取与字段校验
     ├── provider/MockChatModelTest.java       7 —— 场景输出 / 故障注入 / 流式
     ├── provider/MockChatModelToolTest.java   8 —— tool_calls 剧本/路由/结果总结（W4）
@@ -502,7 +558,19 @@ src/test/java/com/smartdesk/                     合计 156 个
     ├── controller/AiControllerTest.java     11 —— 401/400、504/422、SSE 事件
     ├── AiIntegrationTest.java                8 —— 真实 MySQL、越权、落库、SSE
     └── AgentIntegrationTest.java            12 —— 工具越权、确认幂等、会话隔离（W4）
+└── knowledge/                               39 个 —— Week5
+    ├── store/ChunkerTest.java                6 —— 大小/重叠可配置、标点边界、偏移还原（W5）
+    ├── embedding/MockEmbeddingModelTest.java 6 —— 确定性、归一化、相关性可分辨（W5）
+    ├── store/MySqlKnowledgeVectorStoreTest.java 8 —— 越权红线、SQL 带 owner_id、阈值、排序（W5）
+    ├── KnowledgeIntegrationTest.java        18 —— 4 个越权用例 + 索引/检索/引用/重复导入（W5）
+    └── RagEvaluationTest.java                1 —— 30 题 × 3 配置评测，报告自动生成（W5）
 ```
+
+Week5 的测试重心是 **"检索不到的东西不能被编出来"**：
+
+- `similaritySearch` 不带 owner 过滤 → 直接抛异常（越权红线）
+- B 用户检索 / 读 / 删 A 的文档 → 全部失败
+- 模型的引用编号必须落在真实检索结果里（`unsupportedMarkers` 恒为空）
 
 Week4 的测试重心不在"功能对不对"，而在 **"坏事不会发生"**：
 

@@ -15,7 +15,7 @@
 | 第 2 周 | 索引与分页、参数校验、Redis 缓存、JWT 鉴权、多环境配置、测试体系 | ✅ 已完成 |
 | 第 3 周 | Spring AI ChatClient、Prompt 工程、结构化输出、超时重试、SSE 流式、调用可观测 | ✅ 已完成 |
 | 第 4 周 | Tool Calling：工具注册、身份边界、写操作确认、循环刹车、多轮会话 | ✅ 已完成 |
-| 第 5 周 | RAG 知识库 | ⏳ 未开始 |
+| 第 5 周 | RAG 知识库：文档导入、切片、向量化、独立检索、带引用的问答、30 题评测 | ✅ 已完成 |
 
 ---
 
@@ -31,6 +31,9 @@
 | Agent | Spring AI（只引 `spring-ai-client-chat`） | 2.0.1 |
 | Tool Calling | 自建 `ToolRegistry` + `AgentLoop`（schema 生成 / 参数校验 / 四个刹车） | — |
 | 模型接入 | 自实现双 Provider：离线 mock / OpenAI 兼容协议（JDK HttpClient） | — |
+| RAG | Spring AI `VectorStore` 接口 + 自研 MySQL 向量存储（过滤下沉 SQL） | 2.0.1 |
+| 文档解析 | PDFBox（TXT / Markdown / PDF，PDF 保留真实页码） | 3.0.3 |
+| Embedding | Spring AI `EmbeddingModel`：离线 mock（确定性哈希）/ OpenAI 兼容协议 | — |
 | 工程化 | Maven / Git / JUnit 5 / Mockito / Testcontainers / Docker | — |
 
 ---
@@ -130,6 +133,14 @@ export REDIS_PASSWORD=smartdesk_root
 
 > 生产环境（`prod` profile）的数据库密码、JWT 密钥等**没有默认值**，缺失时启动直接失败 —— 这是刻意的 fail-fast，好过带着默认密钥上线。
 
+**RAG 相关变量（Week5）**：切片参数（`RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` / `RAG_MIN_CHUNK_SIZE`）、
+检索参数（`RAG_TOP_K` / `RAG_SIMILARITY_THRESHOLD`）和嵌入模型（`RAG_EMBEDDING_PROVIDER`）
+都是可配置的，完整清单见 [`.env.example`](.env.example)。
+
+> 嵌入模型和聊天模型是**两套独立配置**：DeepSeek 只提供聊天、没有 embedding 接口，
+> 用 DeepSeek 的 Key 时聊天走 `openai`、嵌入仍走 `mock`。真实嵌入用百炼
+> `text-embedding-v3`（`RAG_EMBEDDING_PROVIDER=openai`）。
+
 ### 5. 构建与运行
 
 ```bash
@@ -186,7 +197,7 @@ curl -i http://localhost:18080/api/tasks
 
 ```bash
 mvn -B test
-# 期望：Tests run: 156, Failures: 0, Errors: 0
+# 期望：Tests run: 195, Failures: 0, Errors: 0
 ```
 
 测试分布：
@@ -210,6 +221,11 @@ mvn -B test
 | `AgentLoopTest` | 8 | 四个刹车、截断补响应、工具失败不崩（Week4） |
 | `MockChatModelToolTest` | 8 | tool_calls 协议、路由优先级、结果总结（Week4） |
 | `AgentIntegrationTest` | 12 | 真实 MySQL：工具越权、确认幂等、会话隔离（Week4） |
+| `ChunkerTest` | 6 | 切片边界、重叠、可配置大小（Week5） |
+| `MockEmbeddingModelTest` | 6 | 确定性、归一化、相似度语义（Week5） |
+| `MySqlKnowledgeVectorStoreTest` | 8 | 无 owner 过滤 → 拒绝、SQL 带 owner_id（Week5） |
+| `KnowledgeIntegrationTest` | 18 | 真实 MySQL：越权隔离、重复导入、引用对齐、拒答（Week5） |
+| `RagEvaluationTest` | 1（30 题 × 3 配置） | 检索 hit@1/hit@k 与引用正确率评测（Week5） |
 
 端到端验收脚本（均可重复运行）：
 
@@ -217,13 +233,14 @@ mvn -B test
 python scripts/week2-acceptance.py   # 38 项：Day8–Day12
 python scripts/week3-acceptance.py   # 55 项：Day15–Day20（AI 全链路）
 python scripts/week4-acceptance.py   # 46 项：Day22–Day27（工具/确认/会话）
+python scripts/week5-acceptance.py   # 51 项：Day29–Day35（RAG 导入/检索/引用/越权）
 ```
 
 ### 8. 持续集成（GitHub Actions）
 
 `.github/workflows/docker-verify.yml` 在 GitHub 的 Linux runner 上做**真实的容器化验证**：
 
-1. 跑 88 个单元/切片测试（排除需要本地 MySQL 的 17 个集成测试）
+1. 跑 147 个单元/切片测试（排除 48 个需要真实 MySQL 的测试：4 个 `*IntegrationTest` + `RagEvaluationTest`）
 2. `docker build` 构建镜像 —— 验证 Dockerfile 每条指令
 3. `docker compose up -d --wait` —— 等 mysql / redis / app 三个容器**全部健康**
 4. 冒烟测试：健康检查 → 未登录 401 → 注册 201 → 登录拿 token → 建任务 → 查任务
@@ -286,6 +303,29 @@ python scripts/week4-acceptance.py   # 46 项：Day22–Day27（工具/确认/�
 | POST | `/api/ai/sessions/{id}/messages` | 发消息，触发工具调用循环 |
 | DELETE | `/api/ai/sessions/{id}` | 删除会话（消息级联删除） |
 
+**知识库接口（Week5，需鉴权）**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/documents` | 导入文本/Markdown 文档，返回切片数与 `duplicate` 标记 |
+| POST | `/api/knowledge/documents/upload` | 上传 `.txt` / `.md` / `.pdf` 文件（multipart） |
+| GET | `/api/knowledge/documents` | 我的文档列表 |
+| GET | `/api/knowledge/documents/{id}` | 文档详情（含全部切片、页码、字符区间） |
+| DELETE | `/api/knowledge/documents/{id}` | 删除文档（连带切片；非本人 → 404） |
+| POST | `/api/knowledge/search` | **独立检索**：不经过模型，直接返回片段 / 来源 / 分块 ID / 相似度 |
+| POST | `/api/knowledge/ask` | 带引用的问答：返回 `answer` + `citations` + `unsupportedMarkers` |
+
+知识库的三条硬约束（都有测试守着）：
+
+1. **没有 `owner_id` 过滤的检索一律拒绝** —— 过滤写在 SQL 里，不在内存里做。
+2. **越权访问返回 404** —— 不泄露"这个文档存在"。
+3. **检索不到就不调模型** —— 直接返回拒答，省 token 且防幻觉；模型回答里
+   越界的引用编号会被记入 `unsupportedMarkers`（评测中恒为 0）。
+
+> 检索用的向量存储是**自研的 MySQL 实现**（实现 Spring AI 官方 `VectorStore` 接口），
+> 而不是官方内存版 `SimpleVectorStore` —— 后者的过滤在内存里做，
+> 违反本项目"过滤必须下沉到 SQL"的硬约定。
+
 **写操作不会由模型直接执行**：`createTask` 只生成待确认草稿（Redis，TTL 5 分钟），
 用户调用 `/confirm` 后才落库。模型无法通过任何参数指定 `userId` —— 身份只来自 JWT。
 
@@ -330,12 +370,17 @@ AI_BASE_URL=https://api.deepseek.com/v1 AI_MODEL=deepseek-chat \
 | 503 | `AI_UPSTREAM_ERROR` | 上游 5xx / 不可达 |
 | 422 | `AI_INVALID_OUTPUT` | 模型输出不合法（重试无用，需用户改写输入） |
 | 503 | `AI_NOT_CONFIGURED` | 选了 openai 但 Key 无效/未配置 |
+| 400 | `KNOWLEDGE_DOCUMENT_EMPTY` | 导入的文档为空 / 解析后没有有效内容 |
+| 400 | `KNOWLEDGE_DOCUMENT_TOO_LARGE` | 文档超出长度上限（默认 10 万字符） |
+| 400 | `KNOWLEDGE_UNSUPPORTED_FORMAT` | 不支持的格式（只支持 txt / md / pdf） |
+| 400 | `KNOWLEDGE_PARSE_FAILED` | 解析失败（如 PDF 是扫描件，需先 OCR） |
 
 ---
 
 ## 文档
 
 - [**第 1–2 周总结（交接文档）**](docs/week1-2-summary.md) —— 后端基础、验收数据、10 个坑
+- [**第 5 周总结（交接文档）**](docs/week5-summary.md) —— RAG 交付、三个关键决策、评测发现、遗留项
 - [**第 4 周总结（交接文档）**](docs/week4-summary.md) —— Tool Calling 交付、三大关键决策、验收数据、下一步 RAG
 - [**第 3 周总结（交接文档）**](docs/week3-summary.md) —— AI 能力交付、关键决策、验收数据
 - [第一周执行手册](docs/week1-guide.md) —— 逐日任务、验收命令、面试题
@@ -343,6 +388,8 @@ AI_BASE_URL=https://api.deepseek.com/v1 AI_MODEL=deepseek-chat \
 - [第二周复盘](docs/week2-retrospective.md) —— 包结构重构评估、三个关键技术决策、限时面试答题骨架
 - [第三周执行手册](docs/week3-guide.md) —— Day15–Day21 逐日任务、8 个踩坑、10 道 AI 应用面试题
 - [第四周执行手册](docs/week4-guide.md) —— Day22–Day28 逐日任务、Tool Calling 时序图、8 个踩坑、10 道面试题
+- [第五周执行手册](docs/week5-guide.md) —— Day29–Day35 逐日任务、RAG 三段式、8 个踩坑、10 道面试题
+- [第 5 周检索评测报告](docs/week5-eval-result.md) —— 30 题 × 3 种切片配置的真实命中数据（由测试自动生成）
 - [系统架构说明](docs/architecture.md) —— 一页纸架构图、请求链路、缓存与鉴权设计、AI 能力层、决策记录
 - [Docker 环境方案](docs/docker-setup.md) —— 本机障碍诊断、云端 CI 验证、已修复的 4 个容器级 bug
 - [接口文档](docs/api.md) —— 待补充
@@ -367,21 +414,28 @@ smartdesk/
 │   ├── week2-retrospective.md # 第二周复盘
 │   ├── week3-guide.md         # 第三周执行手册（AI 能力）
 │   ├── week4-guide.md         # 第四周执行手册（Tool Calling）
+│   ├── week5-guide.md         # 第五周执行手册（RAG 知识库）
 │   ├── week1-2-summary.md     # 第 1–2 周交接
 │   ├── week3-summary.md       # 第 3 周交接
 │   ├── week4-summary.md       # 第 4 周交接
+│   ├── week5-summary.md       # 第 5 周交接
+│   ├── week5-eval-result.md   # 第 5 周检索评测报告（测试自动生成）
 │   ├── architecture.md        # 系统架构说明
 │   └── docker-setup.md        # Docker 环境方案（障碍诊断 + 三条路径）
 ├── scripts/
 │   ├── start-redis-dev.sh     # Redis dev 实例 start/stop/status/keys
+│   ├── start-app-local.sh     # 读取 .env 启动应用（密钥不进命令行与日志）
+│   ├── real-model-smoke.py    # 真实模型冒烟（provider 无关，协议级断言）
 │   ├── week2-acceptance.py    # 38 项端到端验收
 │   ├── week3-acceptance.py    # 55 项 AI 链路验收
-│   └── week4-acceptance.py    # 46 项工具调用验收
+│   ├── week4-acceptance.py    # 46 项工具调用验收
+│   └── week5-acceptance.py    # 51 项 RAG 验收
 └── src/
     ├── main/java/com/smartdesk/
     │   ├── SmartDeskApplication.java
     │   ├── ai/                # Week3：config/model/prompt/provider/service/controller
 │   │   ├── tool/          # Week4：ToolRegistry / TaskTools / AgentToolContext / SideEffect
+│   │   ├── knowledge/     # Week5：RAG 知识库（domain/store/embedding/service/controller/config/prompt）
 │   │   ├── entity/        # AiCallLog / AiToolCallLog / ChatSession / ChatMessage
 │   │   └── service/       # 含 AgentLoop / ConfirmationService / ChatSessionService
     │   ├── common/            # 统一响应、全局异常处理、健康检查、业务异常
@@ -411,3 +465,7 @@ smartdesk/
 5. **数据边界只能来自登录态**。任何涉及"属于谁"的判断，ownerId 一律取自 JWT，绝不接受来自请求体或 URL 的用户标识。
 6. **改数据就清缓存**。写操作统一 `@CacheEvict(allEntries = true)`，不要"更新缓存"——并发写时先删后写更安全。
 7. **测试要覆盖失败路径**。每个业务方法至少有一条"应该失败"的断言，不能只测 happy path。
+8. **检索过滤必须下沉到 SQL**。向量检索的 `owner_id` 条件写进 `WHERE`，
+   不能在内存里过滤完再筛 —— 否则过滤条件一旦漏传就是越权。
+9. **检索不到的东西不能被编出来**。检索为空直接拒答，不调模型；
+   模型给出的引用编号必须能对上真实召回的片段，对不上的记入 `unsupportedMarkers`。
