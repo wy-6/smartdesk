@@ -153,6 +153,35 @@ smartdesk:
       # 同一工具 + 同一参数连续出现多少次判定为死循环
       duplicate-call-threshold: ${AI_DUPLICATE_THRESHOLD:3}
 
+  # ---------------- RAG 知识库（第 5 周 / Day29-35）----------------
+  # 切片参数【必须可配置】：不同文档类型需要不同策略，
+  # 而且要用评测集量化对比（hit@k / 引用正确率），不能拍脑袋写死。
+  rag:
+    enabled: ${RAG_ENABLED:true}
+    # 切片长度（字符）。中文制度类文档 300~500 字符通常是一个自然段
+    chunk-size: ${RAG_CHUNK_SIZE:400}
+    # 相邻切片重叠字符数：防止答案正好落在切割线上被劈成两半
+    chunk-overlap: ${RAG_CHUNK_OVERLAP:80}
+    # 过短的尾巴片段并入上一片，避免产生一句话碎片
+    min-chunk-size: ${RAG_MIN_CHUNK_SIZE:40}
+    # 默认召回片段数（Top-K）
+    top-k: ${RAG_TOP_K:5}
+    # 调用方能传入的 Top-K 上限，防止有人传 10000 拖垮数据库
+    max-top-k: ${RAG_MAX_TOP_K:20}
+    # 相似度阈值：低于这个分数不返回。宁可说"没查到"，也不给模型喂噪音
+    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.05}
+    # 单文档最大字符数
+    max-document-chars: ${RAG_MAX_DOC_CHARS:100000}
+    # 单份文档最多参与检索的片段数，防止一份超长文档霸榜
+    max-chunks-per-document: ${RAG_MAX_CHUNKS_PER_DOC:50}
+    embedding:
+      # mock —— 离线确定性哈希嵌入，无需 Key，测试与 CI 全用它
+      # openai —— 任何兼容 /v1/embeddings 的服务（百炼 text-embedding-v3 / OpenAI）
+      #           注意：DeepSeek 没有 embedding 接口，用它的 Key 时这里保持 mock
+      provider: ${RAG_EMBEDDING_PROVIDER:mock}
+      model: ${RAG_EMBEDDING_MODEL:text-embedding-v3}
+      dimensions: ${RAG_EMBEDDING_DIMENSIONS:256}
+
 # ---------------- 日志 ----------------
 logging:
   level:

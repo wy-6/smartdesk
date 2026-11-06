@@ -81,6 +81,10 @@ public class MockChatModel implements ToolAwareChatModel {
 	/** 剧本模式的工具调用标记：{@code [[TOOL:工具名:JSON参数]]}。 */
 	private static final Pattern TOOL_SCRIPT = Pattern.compile("\\[\\[TOOL:([A-Za-z0-9_]+)(?::(.*?))?\\]\\]");
 
+	/** RAG 资料区块：[n]（来源：xxx）\n 内容。 */
+	private static final Pattern MATERIAL_PATTERN = Pattern.compile(
+			"\\[(\\d+)]（来源：([^）]*)）\\n(.*?)(?=\\n\\n\\[|\\n\\n问题：|$)", Pattern.DOTALL);
+
 	private static final Pattern TASK_ID = Pattern.compile("(?:任务|task)\\s*#?\\s*(\\d{1,12})", Pattern.CASE_INSENSITIVE);
 
 	private static final List<String> TITLE_NOISE = List.of("帮我", "请", "麻烦", "创建", "新建", "建一个", "加一个",
@@ -440,6 +444,9 @@ public class MockChatModel implements ToolAwareChatModel {
 	// ------------------------------------------------------------------
 
 	private String render(String system, String user) {
+		if (system.contains(PromptTemplates.RAG_MARKER)) {
+			return renderRag(user);
+		}
 		if (system.contains(PromptTemplates.AGENT_MARKER)) {
 			return renderAgentChat(user);
 		}
@@ -579,6 +586,62 @@ public class MockChatModel implements ToolAwareChatModel {
 			due = today.atTime(18, 0);
 		}
 		return due == null ? null : due.toString();
+	}
+
+	/**
+	 * RAG 场景渲染（Week5）。
+	 *
+	 * <p><b>为什么要专门做一个 RAG 分支？</b>
+	 * mock 的价值是"确定性 + 可断言"。RAG 的验收点是"答案带真实引用、
+	 * 引用编号对得上、没编造不存在的编号"，所以 mock 必须按检索到的资料
+	 * 生成带编号的回答，而不是随便回一句话 —— 否则引用相关的断言没法测。
+	 *
+	 * <p>规则：
+	 * <ol>
+	 *   <li>有资料：取第一条（分数最高的）资料，摘出它的第一句作为答案，标 [1]</li>
+	 *   <li>没资料：返回拒答话术（正常流程下服务层会在调模型前就拒答，
+	 *       这里只是兜底）</li>
+	 * </ol>
+	 */
+	private String renderRag(String user) {
+		List<String[]> materials = parseMaterials(user);
+		if (materials.isEmpty()) {
+			return "根据现有资料无法确认这个问题。";
+		}
+		String[] first = materials.get(0);
+		String index = first[0];
+		String source = first[1];
+		String content = first[2];
+		String sentence = firstSentence(content);
+		return "根据资料[" + index + "]（来源：" + source + "）：" + sentence + " [" + index + "]";
+	}
+
+	/**
+	 * 解析资料区块。
+	 *
+	 * <p>资料格式由 RagPromptTemplates 固定：[n]（来源：xxx）\n 内容
+	 *
+	 * @return 每条资料的 {编号, 来源, 内容}
+	 */
+	private List<String[]> parseMaterials(String user) {
+		List<String[]> materials = new ArrayList<>();
+		Matcher matcher = MATERIAL_PATTERN.matcher(user);
+		while (matcher.find()) {
+			materials.add(new String[] { matcher.group(1), matcher.group(2), matcher.group(3) });
+		}
+		return materials;
+	}
+
+	/** 取第一句（按中文句号、问号、感叹号断句）。 */
+	private String firstSentence(String content) {
+		String trimmed = content.strip();
+		for (int i = 0; i < trimmed.length(); i++) {
+			char c = trimmed.charAt(i);
+			if (c == '。' || c == '！' || c == '？' || c == '\n') {
+				return trimmed.substring(0, i + 1);
+			}
+		}
+		return trimmed;
 	}
 
 	private String renderChat(String user) {

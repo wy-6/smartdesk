@@ -37,6 +37,9 @@ public final class PromptTemplates {
 	/** Agent 助手标记（Week4）。 */
 	public static final String AGENT_MARKER = "任务助手";
 
+	/** 知识库助手标记（Week5）。mock Provider 靠它识别 RAG 场景。 */
+	public static final String RAG_MARKER = "知识库助手";
+
 	/** 允许的分类，改这里必须同步改 {@code TaskCategory} 和测试。 */
 	public static final String CATEGORIES = "BUG, FEATURE, BILLING, ACCOUNT, OTHER";
 

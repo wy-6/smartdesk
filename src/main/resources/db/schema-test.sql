@@ -15,6 +15,8 @@
 -- 先子表后父表，否则外键会挡住 DROP（Week3 新增 ai_call_log 后必须调整顺序）
 DROP TABLE IF EXISTS chat_message;
 DROP TABLE IF EXISTS chat_session;
+DROP TABLE IF EXISTS kb_chunk;
+DROP TABLE IF EXISTS kb_document;
 DROP TABLE IF EXISTS ai_tool_call_log;
 DROP TABLE IF EXISTS ai_call_log;
 DROP TABLE IF EXISTS task;
@@ -212,6 +214,73 @@ CREATE TABLE chat_message (
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT '会话消息表';
+
+-- ============================================================
+-- 知识库文档表（Week5 / Day30）
+--
+-- 正文不存这里：切完片之后正文只存在于 kb_chunk。
+-- 重复存一份正文，一是浪费空间，二是"删文档"要同时清两处，容易漏。
+-- ============================================================
+CREATE TABLE kb_document (
+    id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id     BIGINT        NOT NULL COMMENT '归属用户 id，来自 JWT，数据隔离用',
+    title        VARCHAR(200)  NOT NULL COMMENT '文档标题',
+    file_name    VARCHAR(255)           DEFAULT NULL COMMENT '原始文件名，引用溯源展示用',
+    source_type  VARCHAR(20)   NOT NULL COMMENT '来源类型: TEXT/MARKDOWN/PDF',
+    content_hash CHAR(64)      NOT NULL COMMENT '正文 SHA-256，用于重复导入判定',
+    char_count   INT           NOT NULL DEFAULT 0 COMMENT '正文字符数',
+    chunk_count  INT           NOT NULL DEFAULT 0 COMMENT '切片数量',
+    status       VARCHAR(20)   NOT NULL DEFAULT 'INDEXED' COMMENT '状态: INDEXED/FAILED',
+    created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+
+    -- 覆盖查询：WHERE owner_id=? ORDER BY created_at DESC（我的文档列表）
+    KEY idx_owner_created (owner_id, created_at),
+    -- 覆盖查询：WHERE owner_id=? AND content_hash=?（重复导入判定）
+    -- 注意这不是唯一索引：同一个 owner 的同一份内容允许有多个历史版本，
+    -- 重复导入的拦截在应用层做（返回已存在的文档 id），数据库只负责快速查。
+    KEY idx_owner_hash (owner_id, content_hash),
+
+    CONSTRAINT fk_kb_document_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT '知识库文档表';
+
+-- ============================================================
+-- 知识库切片表（Week5 / Day30-32）
+--
+-- 检索语句永远是：WHERE owner_id=? AND document_id IN (...)
+-- owner 过滤【在 SQL 里完成】，不是查出来在内存里筛。
+-- 这是本项目对所有"按人隔离"数据的统一要求。
+-- ============================================================
+CREATE TABLE kb_chunk (
+    id            BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id      BIGINT      NOT NULL COMMENT '归属用户 id（冗余列，检索直接用它过滤）',
+    document_id   BIGINT      NOT NULL COMMENT '所属文档 id',
+    chunk_index   INT         NOT NULL COMMENT '文档内切片序号，从 0 开始',
+    content       TEXT        NOT NULL COMMENT '切片正文',
+    page_no       INT                  DEFAULT NULL COMMENT '页码（PDF 才有），用于引用溯源翻页',
+    char_start    INT         NOT NULL DEFAULT 0 COMMENT '在原文中的起始偏移',
+    char_end      INT         NOT NULL DEFAULT 0 COMMENT '在原文中的结束偏移（不含）',
+    embedding     MEDIUMBLOB  NOT NULL COMMENT '向量数据（float32 小端字节序）',
+    embedding_dim INT         NOT NULL COMMENT '向量维度',
+    created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+
+    -- 覆盖查询：WHERE owner_id=? AND document_id=? （检索热路径）
+    KEY idx_owner_document (owner_id, document_id),
+    -- 覆盖查询：WHERE document_id=? ORDER BY chunk_index ASC （看某文档的切片）
+    KEY idx_document (document_id),
+
+    CONSTRAINT fk_kb_chunk_document FOREIGN KEY (document_id) REFERENCES kb_document (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_kb_chunk_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT '知识库切片表';
 
 -- ============================================================
 -- 验证索引生效（Day8 验收命令）

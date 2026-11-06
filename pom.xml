@@ -25,6 +25,8 @@
 		<jjwt.version>0.12.6</jjwt.version>
 		<!-- Day13：Testcontainers 版本 -->
 		<testcontainers.version>1.21.3</testcontainers.version>
+		<!-- Day30：PDFBox 版本（PDF 文本抽取） -->
+		<pdfbox.version>3.0.3</pdfbox.version>
 	</properties>
 
 	<dependencyManagement>
@@ -113,6 +115,37 @@
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-client-chat</artifactId>
+		</dependency>
+
+		<!-- ============ Week5 引入向量存储抽象 ============ -->
+		<!--
+			Day31：向量存储选型。
+
+			选的是【Spring AI 官方的 VectorStore 抽象 + 自己实现 MySQL 版本】，
+			而不是 spring-ai-starter-vector-store-simple（官方内存实现）。理由：
+
+			1) SimpleVectorStore 是内存 + JSON 文件持久化，filter 是【内存里过滤】。
+			   本项目的硬约定是"过滤必须下沉到 SQL"——检索语句里必须能看到
+			   owner_id 条件，而不是查出来再在内存里筛。MySQL 版本天然满足。
+			2) 本机 Docker 不可用（wsl 被封），起不了 Milvus / Qdrant / pgvector。
+			   MySQL 是现成的，离线可跑。
+			3) 实现 Spring AI 的接口意味着：业务代码依赖 VectorStore 抽象，
+			   将来换 pgvector 只需要换实现类，检索代码一行不改。
+
+			注意：这里只引 core 模块，不引任何 starter —— starter 会触发
+			厂商自动配置并强制要求 api-key，破坏离线可跑的原则（同 Week3）。
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-vector-store</artifactId>
+		</dependency>
+
+		<!-- ============ Week5 引入 PDF 解析 ============ -->
+		<!-- Day30：PDF/TXT/Markdown 三种格式的文本抽取。PDFBox 是事实标准。 -->
+		<dependency>
+			<groupId>org.apache.pdfbox</groupId>
+			<artifactId>pdfbox</artifactId>
+			<version>${pdfbox.version}</version>
 		</dependency>
 
 		<!-- ============ Week2 引入鉴权 ============ -->
