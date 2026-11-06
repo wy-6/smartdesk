@@ -38,6 +38,17 @@ logging:
     root: WARN
     com.smartdesk: INFO
 
+# Week3：测试全部走 mock Provider，不依赖任何真实模型、不需要 API Key。
+# 重试退避压到 1ms，避免测试因为"等 300ms 再重试"而变慢。
+smartdesk:
+  ai:
+    provider: mock
+    max-attempts: 3
+    retry-base-millis: 1
+    mock-chunk-delay-millis: 0
+    mock:
+      latency-millis: 0
+
 management:
   endpoint:
     health:

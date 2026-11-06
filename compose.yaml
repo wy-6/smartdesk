@@ -82,6 +82,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-key-must-be-changed-in-production-0123456789}
       SERVER_PORT: 18080
       SPRING_PROFILES_ACTIVE: prod
+      # Week3：模型 Provider。默认 mock，离线即可跑通全部接口；
+      # 要用真实模型就传 AI_PROVIDER=openai + OPENAI_API_KEY。
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "${APP_PORT:-18080}:18080"
 

@@ -14,11 +14,16 @@ CREATE DATABASE IF NOT EXISTS smartdesk
 
 USE smartdesk;
 
+-- 删除顺序必须"先子表后父表"，否则外键约束会让 DROP 失败。
+-- 这也是 Week3 加表时踩到的第一个坑：ai_call_log 引用 app_user，
+-- 如果先 DROP app_user，MySQL 直接报 Cannot delete or update a parent row。
+DROP TABLE IF EXISTS ai_call_log;
+DROP TABLE IF EXISTS task;
+DROP TABLE IF EXISTS app_user;
+
 -- ============================================================
 -- 用户表（Day11）
 -- ============================================================
-DROP TABLE IF EXISTS app_user;
-
 CREATE TABLE app_user (
     id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     username      VARCHAR(64)  NOT NULL COMMENT '登录名，全局唯一',
@@ -39,8 +44,6 @@ CREATE TABLE app_user (
 -- ============================================================
 -- 任务表（Day5 建立骨架，Day8 补索引，Day11 加外键）
 -- ============================================================
-DROP TABLE IF EXISTS task;
-
 CREATE TABLE task (
     id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     title       VARCHAR(200) NOT NULL COMMENT '任务标题',
@@ -91,6 +94,44 @@ CREATE TABLE task (
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT '任务表';
+
+-- ============================================================
+-- AI 调用记录表（Week3 / Day19）
+-- ============================================================
+CREATE TABLE ai_call_log (
+    id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id          BIGINT       NOT NULL COMMENT '所属用户 id，数据隔离用',
+    trace_id          VARCHAR(64)  NOT NULL COMMENT '调用追踪号，一次业务操作一个',
+    scene             VARCHAR(32)  NOT NULL COMMENT '场景: chat/summary/classify/task_draft',
+    provider          VARCHAR(32)  NOT NULL COMMENT '提供方: mock/openai',
+    model             VARCHAR(64)           DEFAULT NULL COMMENT '模型名',
+    prompt_tokens     INT          NOT NULL DEFAULT 0 COMMENT '输入 Token',
+    completion_tokens INT          NOT NULL DEFAULT 0 COMMENT '输出 Token',
+    total_tokens      INT          NOT NULL DEFAULT 0 COMMENT '总 Token',
+    latency_ms        INT          NOT NULL DEFAULT 0 COMMENT '耗时（含重试）',
+    attempts          INT          NOT NULL DEFAULT 1 COMMENT '实际尝试次数',
+    success           TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '1 成功 0 失败',
+    error_code        VARCHAR(32)           DEFAULT NULL COMMENT '失败错误码',
+    error_message     VARCHAR(500)          DEFAULT NULL COMMENT '失败原因（已脱敏截断）',
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+
+    -- idx_owner_created (owner_id, created_at)
+    --   覆盖查询：WHERE owner_id=? ORDER BY created_at DESC
+    --   和第 2 周 task 表的思路一致：owner_id 放最左，既过滤又天然隔离。
+    --   注意排序方向不影响索引可用性，MySQL 可以反向扫描。
+    KEY idx_owner_created (owner_id, created_at),
+
+    -- idx_trace (trace_id)
+    --   覆盖查询：WHERE trace_id=?  （用户报障时按 trace 查整次操作的调用链）
+    --   不建唯一索引：一次 task_draft 可能调多次模型（修复重试），trace 会重复。
+    KEY idx_trace (trace_id),
+
+    CONSTRAINT fk_ai_log_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT 'AI 调用记录表';
 
 -- ============================================================
 -- 验证索引生效（Day8 验收命令）

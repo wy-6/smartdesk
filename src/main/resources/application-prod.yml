@@ -47,6 +47,16 @@ smartdesk:
     secret: ${JWT_SECRET}
     expiration-seconds: ${JWT_EXPIRATION:7200}
 
+  ai:
+    # 生产同样允许显式选择 mock（用于没有模型账号的演示环境），
+    # 但一旦选了 openai，AiConfig 会强校验 API Key —— 缺 Key 直接启动失败，
+    # 而不是等到第一个用户提问才 500。
+    provider: ${AI_PROVIDER:mock}
+    model: ${AI_MODEL:gpt-4o-mini}
+    openai:
+      base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+
 logging:
   level:
     root: WARN

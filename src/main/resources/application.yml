@@ -106,6 +106,38 @@ smartdesk:
     secret: ${JWT_SECRET:dev-only-secret-key-must-be-changed-in-production-0123456789}
     expiration-seconds: ${JWT_EXPIRATION:7200}
 
+  # ---------------- Spring AI（Week3 / Day15-21）----------------
+  # 【关键设计】provider 可切换，业务代码只依赖 Spring AI 的 ChatClient 接口。
+  #   mock   —— 离线、确定性、可故障注入，本地开发与全部自动化测试默认用它
+  #   openai —— 任何 OpenAI 兼容协议的服务（OpenAI / DeepSeek / 通义千问兼容模式 /
+  #              Moonshot / 本地 vLLM / Ollama 的 /v1 端点），只改 base-url 和 model
+  # 真实模型不可用时也能完成调用链路与错误处理的验收，
+  # 但正式投递前必须用真实 Key 跑一遍核心流程（Day19 的验收项）。
+  ai:
+    provider: ${AI_PROVIDER:mock}
+    model: ${AI_MODEL:gpt-4o-mini}
+    # 温度：结构化输出场景要稳定，所以默认偏低
+    temperature: ${AI_TEMPERATURE:0.3}
+    # 单次请求超时。超过就抛 AI_TIMEOUT，由重试策略决定是否再来一次
+    request-timeout: ${AI_REQUEST_TIMEOUT:20s}
+    # 最多尝试次数（含第一次），不是"重试次数"
+    max-attempts: ${AI_MAX_ATTEMPTS:3}
+    # 指数退避基数：第 n 次重试等待 base * 2^(n-1) + 随机抖动
+    retry-base-millis: ${AI_RETRY_BASE_MILLIS:300}
+    # 结构化输出被模型写坏时，最多再补问几次（把校验错误回喂给模型）
+    max-repair-attempts: ${AI_MAX_REPAIR_ATTEMPTS:1}
+    # mock Provider 每个流式分片之间的间隔，演示 SSE 时肉眼可见
+    mock-chunk-delay-millis: ${AI_MOCK_CHUNK_DELAY:60}
+    openai:
+      base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+      # 没有默认值：没配 Key 就不该静默失败，AiConfig 会在启动时明确报错
+      api-key: ${OPENAI_API_KEY:}
+      # 有些兼容服务不支持 response_format，置 false 时只用 Prompt 约束输出 JSON
+      supports-json-mode: ${AI_JSON_MODE:false}
+    mock:
+      # 模拟真实网络耗时，用来观察 P99；测试环境设为 0 保证速度
+      latency-millis: ${AI_MOCK_LATENCY:80}
+
 # ---------------- 日志 ----------------
 logging:
   level:
@@ -113,13 +145,3 @@ logging:
     com.smartdesk: ${LOG_LEVEL_APP:DEBUG}
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
-
-# ---------------- Spring AI（第 3 周启用，现在先注释掉避免启动报错）----------------
-# spring:
-#   ai:
-#     openai-sdk:
-#       api-key: ${OPENAI_API_KEY}
-#       chat:
-#         options:
-#           model: gpt-5-mini
-#           temperature: 0.7

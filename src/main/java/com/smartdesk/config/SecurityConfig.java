@@ -14,6 +14,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import com.smartdesk.common.ApiResponse;
 import com.smartdesk.security.JwtAuthenticationFilter;
 
+import jakarta.servlet.DispatcherType;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -63,6 +64,12 @@ public class SecurityConfig {
 				.formLogin(form -> form.disable())
 				// 授权规则
 				.authorizeHttpRequests(auth -> auth
+						// Week3 / Day20：SSE 等异步请求会触发【第二次派发】（DispatcherType.ASYNC），
+						// 此时 SecurityContext 不会自动传到异步线程，若仍要求认证就会抛
+						// "Unable to handle the Spring Security Exception because the response is already committed"
+						// —— 因为 SSE 的响应头早就发出去了，改不了状态码。
+						// 首次 REQUEST 派发已经做过认证，所以 ASYNC/ERROR 派发放行是安全的。
+						.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
 						// 公开接口
 						.requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
 						.requestMatchers("/api/health", "/actuator/health").permitAll()

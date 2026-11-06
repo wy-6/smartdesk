@@ -95,6 +95,26 @@
 			<artifactId>spring-boot-starter-cache</artifactId>
 		</dependency>
 
+		<!-- ============ Week3 引入 Spring AI ============ -->
+		<!--
+			Day16：只引 spring-ai-client-chat，【不引】spring-ai-starter-model-openai。
+
+			原因（这是一个刻意的选型，面试可以讲）：
+			1) starter 会触发 OpenAiAutoConfiguration，启动时强制要求 api-key，
+			   没有 Key 应用直接起不来 —— 而本项目默认跑 mock Provider（离线、可重复、
+			   测试不需要真实模型），starter 会破坏这一点。
+			2) 我们要自己实现 ChatModel（mock / OpenAI 兼容协议两套），
+			   只需要 ChatClient + ChatModel + Prompt 这套客户端抽象，不需要厂商 SDK。
+			3) 生产要换真实模型时，只改配置，不改业务代码 —— 因为 AiService 只依赖
+			   Spring AI 的 ChatClient 接口。
+
+			spring-ai-client-chat 会传递依赖 spring-ai-model / spring-ai-commons / reactor-core。
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-client-chat</artifactId>
+		</dependency>
+
 		<!-- ============ Week2 引入鉴权 ============ -->
 		<!-- Day11：Spring Security。Boot 4 对应 Security 7.x -->
 		<dependency>

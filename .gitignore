@@ -29,6 +29,8 @@ desktop.ini
 # 验收清单明确要求「没有将 API Key 提交到代码仓库」
 .env
 .env.*
+# 但模板必须进仓库：没有它，新环境不知道要配哪些变量
+!.env.example
 *.pem
 *.key
 application-local.yml

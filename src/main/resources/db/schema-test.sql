@@ -12,11 +12,14 @@
 
 
 
+-- 先子表后父表，否则外键会挡住 DROP（Week3 新增 ai_call_log 后必须调整顺序）
+DROP TABLE IF EXISTS ai_call_log;
+DROP TABLE IF EXISTS task;
+DROP TABLE IF EXISTS app_user;
+
 -- ============================================================
 -- 用户表（Day11）
 -- ============================================================
-DROP TABLE IF EXISTS app_user;
-
 CREATE TABLE app_user (
     id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     username      VARCHAR(64)  NOT NULL COMMENT '登录名，全局唯一',
@@ -37,8 +40,6 @@ CREATE TABLE app_user (
 -- ============================================================
 -- 任务表（Day5 建立骨架，Day8 补索引，Day11 加外键）
 -- ============================================================
-DROP TABLE IF EXISTS task;
-
 CREATE TABLE task (
     id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     title       VARCHAR(200) NOT NULL COMMENT '任务标题',
@@ -89,6 +90,34 @@ CREATE TABLE task (
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT '任务表';
+
+-- ============================================================
+-- AI 调用记录表（Week3 / Day19）
+-- ============================================================
+CREATE TABLE ai_call_log (
+    id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id          BIGINT       NOT NULL COMMENT '所属用户 id，数据隔离用',
+    trace_id          VARCHAR(64)  NOT NULL COMMENT '调用追踪号，一次业务操作一个',
+    scene             VARCHAR(32)  NOT NULL COMMENT '场景: chat/summary/classify/task_draft',
+    provider          VARCHAR(32)  NOT NULL COMMENT '提供方: mock/openai',
+    model             VARCHAR(64)           DEFAULT NULL COMMENT '模型名',
+    prompt_tokens     INT          NOT NULL DEFAULT 0 COMMENT '输入 Token',
+    completion_tokens INT          NOT NULL DEFAULT 0 COMMENT '输出 Token',
+    total_tokens      INT          NOT NULL DEFAULT 0 COMMENT '总 Token',
+    latency_ms        INT          NOT NULL DEFAULT 0 COMMENT '耗时（含重试）',
+    attempts          INT          NOT NULL DEFAULT 1 COMMENT '实际尝试次数',
+    success           TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '1 成功 0 失败',
+    error_code        VARCHAR(32)           DEFAULT NULL COMMENT '失败错误码',
+    error_message     VARCHAR(500)          DEFAULT NULL COMMENT '失败原因（已脱敏截断）',
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    KEY idx_owner_created (owner_id, created_at),
+    KEY idx_trace (trace_id),
+    CONSTRAINT fk_ai_log_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT 'AI 调用记录表';
 
 -- ============================================================
 -- 验证索引生效（Day8 验收命令）

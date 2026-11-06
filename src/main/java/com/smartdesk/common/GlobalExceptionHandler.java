@@ -17,6 +17,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import com.smartdesk.ai.model.AiException;
+
 /**
  * 全局异常处理（Day4）。
  *
@@ -117,6 +119,26 @@ public class GlobalExceptionHandler {
 		log.warn("方法参数校验失败: {}", ex.getMessage());
 		return ResponseEntity.badRequest()
 				.body(ApiResponse.failure("VALIDATION_ERROR", "参数校验失败，请检查参数取值范围"));
+	}
+
+	/**
+	 * AI 调用异常（Week3 / Day19）→ 按错误码映射状态码。
+	 *
+	 * <p><b>为什么不能统一映射成 500？</b>
+	 * 因为前端要对不同情况做不同处理：
+	 * <ul>
+	 *   <li>{@code AI_TIMEOUT} (504)：可以提示"重试"</li>
+	 *   <li>{@code AI_RATE_LIMITED} (429)：可以退避后自动重试</li>
+	 *   <li>{@code AI_INVALID_OUTPUT} (422)：重试没用，要让用户改写输入</li>
+	 * </ul>
+	 * 全都返回 500，前端就只能"弹个红色提示"，体验和可维护性都差。
+	 */
+	@ExceptionHandler(AiException.class)
+	public ResponseEntity<ApiResponse<Void>> handleAi(AiException ex) {
+		log.warn("AI 调用失败 code={} attempts={} message={}", ex.getCode().getCode(), ex.getAttempts(),
+				ex.getMessage());
+		return ResponseEntity.status(ex.getCode().getHttpStatus())
+				.body(ApiResponse.failure(ex.getCode().getCode(), ex.getMessage()));
 	}
 
 	/**
