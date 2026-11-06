@@ -12,6 +12,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,8 +73,24 @@ public class OpenAiChatTransport {
 
 	/** 同步调用。 */
 	public ChatResponsePayload complete(List<Msg> messages, boolean jsonMode) {
+		return complete(messages, jsonMode, List.of());
+	}
+
+	/**
+	 * 带工具定义的同步调用（Week4）。
+	 *
+	 * <p>{@code tool_choice="auto"} 表示"模型自己决定调不调工具"。
+	 * 其他常见取值：{@code "none"}（禁止调用，用于强制纯文本回答）、
+	 * {@code {"type":"function","function":{"name":"x"}}（强制调某个工具）。
+	 * 本项目用 auto —— 大部分请求都不需要工具，强制调用会浪费时间与 token。
+	 *
+	 * @param tools OpenAI 协议的 tools 数组，空列表表示不带工具
+	 */
+	public ChatResponsePayload complete(List<Msg> messages, boolean jsonMode, List<Map<String, Object>> tools) {
+		boolean withTools = tools != null && !tools.isEmpty();
 		ChatRequest payload = new ChatRequest(properties.getModel(), messages, properties.getTemperature(), false,
-				jsonMode ? ResponseFormat.jsonObject() : null);
+				jsonMode ? ResponseFormat.jsonObject() : null, withTools ? tools : null,
+				withTools ? "auto" : null);
 
 		HttpResponse<String> response;
 		try {

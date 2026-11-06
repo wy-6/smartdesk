@@ -50,6 +50,8 @@ public class AiProperties {
 
 	private final Mock mock = new Mock();
 
+	private final Agent agent = new Agent();
+
 	public String getProvider() {
 		return provider;
 	}
@@ -122,6 +124,10 @@ public class AiProperties {
 		return mock;
 	}
 
+	public Agent getAgent() {
+		return agent;
+	}
+
 	/** 是否使用真实模型。 */
 	public boolean useOpenAi() {
 		return "openai".equalsIgnoreCase(provider);
@@ -168,6 +174,94 @@ public class AiProperties {
 
 		public void setSupportsJsonMode(boolean supportsJsonMode) {
 			this.supportsJsonMode = supportsJsonMode;
+		}
+
+	}
+
+	/**
+	 * Agent（工具调用）治理配置（Week4 / Day26）。
+	 *
+	 * <p><b>这一组参数全部是"防止烧钱"和"防止卡死"的刹车</b>，一个都不能省：
+	 * <ul>
+	 *   <li>{@code max-rounds}：模型 ↔ 工具的最大往返轮数。没有它，模型可能
+	 *       反复调工具永不收敛，一次请求就能烧掉几十次调用</li>
+	 *   <li>{@code max-tool-calls-per-round}：单轮最多执行几个工具。模型偶尔会
+	 *       一次返回十几个 tool_calls（并行调用），全执行就是十几倍的数据库压力</li>
+	 *   <li>{@code total-timeout}：整个 Agent 循环的总预算。单次模型调用有超时，
+	 *       但 4 轮 × 20s 仍然是 80s，用户早就关页面了</li>
+	 *   <li>{@code duplicate-call-threshold}：同一工具 + 同一参数连续出现 N 次就熔断。
+	 *       这是"模型陷入死循环"最典型的形态</li>
+	 * </ul>
+	 *
+	 * <p>面试可讲：这些值不是拍脑袋的。轮数取 4 是因为常见任务链是
+	 * "查列表 → 查详情 → 创建"，留一轮余量；再多的链路应该拆成多次对话。
+	 */
+	public static class Agent {
+
+		/** 模型 ↔ 工具的最大往返轮数（含最后一次纯文本回答）。 */
+		private int maxRounds = 4;
+
+		/** 单轮最多执行几个工具调用。 */
+		private int maxToolCallsPerRound = 5;
+
+		/** 整个 Agent 循环的总时间预算。 */
+		private Duration totalTimeout = Duration.ofSeconds(60);
+
+		/** 待确认草稿的存活时间。 */
+		private Duration confirmationTtl = Duration.ofMinutes(5);
+
+		/** 注入模型的历史消息条数上限（按条数，不按 token）。 */
+		private int maxHistoryMessages = 20;
+
+		/** 同一工具 + 同一参数连续出现多少次判定为死循环。 */
+		private int duplicateCallThreshold = 3;
+
+		public int getMaxRounds() {
+			return maxRounds;
+		}
+
+		public void setMaxRounds(int maxRounds) {
+			this.maxRounds = maxRounds;
+		}
+
+		public int getMaxToolCallsPerRound() {
+			return maxToolCallsPerRound;
+		}
+
+		public void setMaxToolCallsPerRound(int maxToolCallsPerRound) {
+			this.maxToolCallsPerRound = maxToolCallsPerRound;
+		}
+
+		public Duration getTotalTimeout() {
+			return totalTimeout;
+		}
+
+		public void setTotalTimeout(Duration totalTimeout) {
+			this.totalTimeout = totalTimeout;
+		}
+
+		public Duration getConfirmationTtl() {
+			return confirmationTtl;
+		}
+
+		public void setConfirmationTtl(Duration confirmationTtl) {
+			this.confirmationTtl = confirmationTtl;
+		}
+
+		public int getMaxHistoryMessages() {
+			return maxHistoryMessages;
+		}
+
+		public void setMaxHistoryMessages(int maxHistoryMessages) {
+			this.maxHistoryMessages = maxHistoryMessages;
+		}
+
+		public int getDuplicateCallThreshold() {
+			return duplicateCallThreshold;
+		}
+
+		public void setDuplicateCallThreshold(int duplicateCallThreshold) {
+			this.duplicateCallThreshold = duplicateCallThreshold;
 		}
 
 	}

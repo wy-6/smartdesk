@@ -48,6 +48,12 @@ smartdesk:
     mock-chunk-delay-millis: 0
     mock:
       latency-millis: 0
+    # Week4：把 Agent 的刹车调紧，用少量请求就能验证保护措施生效
+    agent:
+      max-rounds: 3
+      max-tool-calls-per-round: 3
+      duplicate-call-threshold: 2
+      total-timeout: 10s
 
 management:
   endpoint:

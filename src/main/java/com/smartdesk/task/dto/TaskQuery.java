@@ -1,6 +1,7 @@
 package com.smartdesk.task.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import com.smartdesk.task.entity.TaskStatus;
 
@@ -42,6 +43,15 @@ public class TaskQuery {
 	/** 状态过滤，null 表示不过滤。 */
 	private TaskStatus status;
 
+	/**
+	 * 多状态过滤（Week4 新增，为"逾期任务"服务）。
+	 *
+	 * <p>为什么单靠 {@link #status} 不够？"逾期"的语义是
+	 * <b>截止时间已过且还没完成</b>，也就是 {@code status IN (TODO, IN_PROGRESS)}。
+	 * 单个等值条件表达不了 IN，只能拆成两次查询再合并 —— 那既慢又容易漏。
+	 */
+	private List<TaskStatus> statuses;
+
 	/** 截止时间下界（含），null 表示不限。 */
 	private LocalDateTime dueFrom;
 
@@ -71,6 +81,14 @@ public class TaskQuery {
 
 	public void setStatus(TaskStatus status) {
 		this.status = status;
+	}
+
+	public List<TaskStatus> getStatuses() {
+		return statuses;
+	}
+
+	public void setStatuses(List<TaskStatus> statuses) {
+		this.statuses = statuses;
 	}
 
 	public LocalDateTime getDueFrom() {

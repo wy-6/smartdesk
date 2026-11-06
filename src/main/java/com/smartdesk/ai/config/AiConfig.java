@@ -37,7 +37,7 @@ public class AiConfig {
 		return switch (provider) {
 			case "mock" -> {
 				log.info("AI provider=mock：离线规则引擎，不产生真实模型调用（测试与本地开发用）");
-				yield new MockChatModel(properties);
+				yield new MockChatModel(properties, objectMapper);
 			}
 			case "openai" -> {
 				String apiKey = properties.getOpenai().getApiKey();

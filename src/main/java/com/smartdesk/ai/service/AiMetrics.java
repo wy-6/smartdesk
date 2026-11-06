@@ -70,6 +70,35 @@ public class AiMetrics {
 				.record(Duration.ofMillis(Math.max(0, latencyMs)));
 	}
 
+	/**
+	 * 工具执行指标（Week4 / Day26）。
+	 *
+	 * <p><b>为什么工具要单独一套指标，而不是混进 {@code ai.calls}？</b>
+	 * 因为排查方向完全不同：模型失败要看上游，工具失败要看自己的数据库和代码。
+	 * 混在一起看，一次"工具 NPE"会被误判成"模型服务抖动"。
+	 *
+	 * <p>tag 里刻意不放 traceId / userId —— 那是高基数，会让 Prometheus 内存爆掉。
+	 * 具体的 trace 查询走 {@code ai_tool_call_log} 表。
+	 */
+	public void recordToolCall(String toolName, boolean ok, long latencyMs) {
+		registry.counter("ai.tool.calls", "tool", toolName, "outcome", ok ? "success" : "error").increment();
+		Timer.builder("ai.tool.latency")
+				.tag("tool", toolName)
+				.register(registry)
+				.record(Duration.ofMillis(Math.max(0, latencyMs)));
+	}
+
+	/**
+	 * 越权参数注入尝试（Week4 / Day24）。
+	 *
+	 * <p>这个指标一旦非零就该告警：说明有人在用 Prompt 注入试图让模型
+	 * 传 {@code userId}。虽然我们剥离了参数不会真的越权，
+	 * 但"有人正在尝试"本身就是需要关注的安全信号。
+	 */
+	public void recordPrivilegeStripped() {
+		registry.counter("ai.tool.privilege_stripped").increment();
+	}
+
 	private Counter counter(AiScene scene, String provider, String outcome) {
 		return registry.counter("ai.calls", "scene", scene.getCode(), "provider", provider, "outcome", outcome);
 	}

@@ -35,7 +35,23 @@ public enum AiErrorCode {
 	INVALID_REQUEST("AI_INVALID_REQUEST", 400, false, "AI 请求参数不合法"),
 
 	/** 服务未配置（例如选了 openai 但没给 Key）→ 503。 */
-	NOT_CONFIGURED("AI_NOT_CONFIGURED", 503, false, "模型服务未正确配置");
+	NOT_CONFIGURED("AI_NOT_CONFIGURED", 503, false, "模型服务未正确配置"),
+
+	/**
+	 * 工具调用轮数超过上限 → 422。
+	 *
+	 * <p>为什么不是 500？因为这不是"服务器坏了"，而是模型没能收敛。
+	 * 用户重说一遍、或者把需求拆小一点就能成功，属于可修正的请求问题。
+	 */
+	TOOL_LOOP_EXCEEDED("AI_TOOL_LOOP_EXCEEDED", 422, false, "工具调用轮数超过上限，已终止本次处理"),
+
+	/**
+	 * 检测到工具重复调用 → 422。
+	 *
+	 * <p>这是"烧钱"的主要形态：模型卡在同一个工具上反复调用，
+	 * 每一轮都是真实计费。必须在第 3 次就掐断，而不是等轮数上限。
+	 */
+	TOOL_LOOP_DETECTED("AI_TOOL_LOOP_DETECTED", 422, false, "检测到工具重复调用，已终止本次处理");
 
 	private final String code;
 

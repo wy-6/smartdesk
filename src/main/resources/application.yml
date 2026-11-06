@@ -137,6 +137,21 @@ smartdesk:
     mock:
       # 模拟真实网络耗时，用来观察 P99；测试环境设为 0 保证速度
       latency-millis: ${AI_MOCK_LATENCY:80}
+    # ---------------- Agent 工具调用治理（第 4 周）----------------
+    # 这一组全是"刹车"：没有它们，模型可能反复调工具把 token 烧光
+    agent:
+      # 模型 ↔ 工具最大往返轮数。常见链路"查列表→查详情→创建"是 3 轮，留 1 轮余量
+      max-rounds: ${AI_MAX_ROUNDS:4}
+      # 单轮最多执行几个工具（模型有时一次返回十几个并行调用）
+      max-tool-calls-per-round: ${AI_MAX_TOOL_CALLS:5}
+      # 整个 Agent 循环的总预算。4 轮 × 20s 单次超时 = 80s，用户早走了
+      total-timeout: ${AI_TOOL_TIMEOUT:60s}
+      # 待确认草稿存活时间，过期后确认接口返回 404
+      confirmation-ttl: ${AI_CONFIRM_TTL:5m}
+      # 回灌给模型的历史消息条数上限
+      max-history-messages: ${AI_MAX_HISTORY:20}
+      # 同一工具 + 同一参数连续出现多少次判定为死循环
+      duplicate-call-threshold: ${AI_DUPLICATE_THRESHOLD:3}
 
 # ---------------- 日志 ----------------
 logging:

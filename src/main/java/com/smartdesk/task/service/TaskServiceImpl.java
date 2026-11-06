@@ -180,6 +180,10 @@ public class TaskServiceImpl implements TaskService {
 		if (query.getStatus() != null) {
 			wrapper.eq(Task::getStatus, query.getStatus());
 		}
+		if (query.getStatuses() != null && !query.getStatuses().isEmpty()) {
+			// IN 查询：只有"逾期任务"这类语义需要，走 idx_owner_status 的最左前缀
+			wrapper.in(Task::getStatus, query.getStatuses());
+		}
 		if (query.getDueFrom() != null) {
 			wrapper.ge(Task::getDueDate, query.getDueFrom());
 		}

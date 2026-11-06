@@ -23,7 +23,16 @@ public enum AiScene {
 	CLASSIFY("classify"),
 
 	/** 自然语言 → 任务草稿（结构化输出）。 */
-	TASK_DRAFT("task_draft");
+	TASK_DRAFT("task_draft"),
+
+	/**
+	 * Agent 工具调用（Week4）。
+	 *
+	 * <p>单独一个场景而不是复用 {@link #CHAT}，是因为它的成本结构和 chat 完全不同：
+	 * 一次 agent 请求可能是 3 次模型调用 + 2 次工具执行。混在一起统计，
+	 * 既看不出 agent 的真实成本，也算不准单次对话的 P99。
+	 */
+	AGENT("agent");
 
 	private final String code;
 

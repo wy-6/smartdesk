@@ -13,6 +13,9 @@
 
 
 -- 先子表后父表，否则外键会挡住 DROP（Week3 新增 ai_call_log 后必须调整顺序）
+DROP TABLE IF EXISTS chat_message;
+DROP TABLE IF EXISTS chat_session;
+DROP TABLE IF EXISTS ai_tool_call_log;
 DROP TABLE IF EXISTS ai_call_log;
 DROP TABLE IF EXISTS task;
 DROP TABLE IF EXISTS app_user;
@@ -118,6 +121,97 @@ CREATE TABLE ai_call_log (
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT 'AI 调用记录表';
+
+-- ============================================================
+-- 工具调用审计表（Week4 / Day26）
+--
+-- 为什么不复用 ai_call_log？
+--   一次 Agent 请求 = N 次模型调用 + M 次工具执行，两者排查方向完全不同：
+--   ai_call_log 回答"花了多少钱、模型超时没有"，
+--   ai_tool_call_log 回答"模型到底动了哪些数据、参数是什么"。
+--   出事时后者更重要 —— 用户说"AI 把我的任务改了"，你要能查到当时的参数。
+-- ============================================================
+CREATE TABLE ai_tool_call_log (
+    id                 BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id           BIGINT        NOT NULL COMMENT '归属用户，来自 JWT',
+    trace_id           VARCHAR(64)   NOT NULL COMMENT '追踪号，与 ai_call_log.trace_id 对应',
+    session_id         BIGINT                 DEFAULT NULL COMMENT '会话 id，无状态调用为 NULL',
+    tool_name          VARCHAR(64)   NOT NULL COMMENT '工具名',
+    arguments          VARCHAR(2000)          DEFAULT NULL COMMENT '调用参数（已截断）',
+    success            TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '1 成功 0 失败',
+    error_code         VARCHAR(40)            DEFAULT NULL COMMENT '失败错误码',
+    result_summary     VARCHAR(500)           DEFAULT NULL COMMENT '结果摘要（已脱敏截断）',
+    latency_ms         INT           NOT NULL DEFAULT 0 COMMENT '执行耗时（毫秒）',
+    privilege_stripped TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否剥离过越权参数（模型试图传 userId）',
+    created_at         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+
+    -- 覆盖查询：WHERE owner_id=? ORDER BY created_at DESC
+    KEY idx_owner_created (owner_id, created_at),
+    -- 覆盖查询：WHERE trace_id=?  （把一次对话的模型调用与工具调用串起来看）
+    KEY idx_trace (trace_id),
+
+    CONSTRAINT fk_tool_log_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT '工具调用审计表';
+
+-- ============================================================
+-- 会话表（Week4 / Day27）
+--
+-- 为什么只存元信息，消息单独一张表？
+--   会话列表页只要标题和时间。如果标题和消息混在一起，
+--   每次翻列表都要扫过几万条消息文本 —— 这是典型的"表设计跟着页面走"的错误。
+-- ============================================================
+CREATE TABLE chat_session (
+    id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    owner_id   BIGINT       NOT NULL COMMENT '归属用户，来自 JWT',
+    title      VARCHAR(200) NOT NULL DEFAULT '新对话' COMMENT '标题，取首条用户消息前 30 字',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活跃时间',
+    PRIMARY KEY (id),
+
+    -- 覆盖查询：WHERE owner_id=? ORDER BY updated_at DESC
+    -- 会话列表按"最近活跃"排序，所以索引第二列放 updated_at
+    KEY idx_owner_updated (owner_id, updated_at),
+
+    CONSTRAINT fk_session_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT '对话会话表';
+
+-- ============================================================
+-- 会话消息表（Week4 / Day27）
+--
+-- owner_id 是从 chat_session 冗余过来的（反范式）。
+-- 为什么允许这种冗余？因为第 2 周定下的"SQL 层再兜一层"：
+-- 查询永远 WHERE session_id=? AND owner_id=?，
+-- 即使上层漏了会话归属校验，也读不到别人的消息。
+-- ============================================================
+CREATE TABLE chat_message (
+    id         BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    session_id BIGINT        NOT NULL COMMENT '会话 id',
+    owner_id   BIGINT        NOT NULL COMMENT '归属用户（冗余，用于 SQL 层隔离）',
+    role       VARCHAR(16)   NOT NULL COMMENT 'USER / ASSISTANT / TOOL',
+    content    TEXT                   DEFAULT NULL COMMENT '消息正文',
+    tool_calls VARCHAR(2000)          DEFAULT NULL COMMENT '该轮工具调用摘要（JSON，仅供展示，不回灌模型）',
+    created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+
+    -- 覆盖查询：WHERE session_id=? AND owner_id=? ORDER BY id ASC （按时间顺序读消息）
+    KEY idx_session_id (session_id, id),
+    -- 覆盖查询：WHERE owner_id=?  （按用户统计消息量、清理数据）
+    KEY idx_owner (owner_id),
+
+    CONSTRAINT fk_message_session FOREIGN KEY (session_id) REFERENCES chat_session (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_message_owner FOREIGN KEY (owner_id) REFERENCES app_user (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT '会话消息表';
 
 -- ============================================================
 -- 验证索引生效（Day8 验收命令）
