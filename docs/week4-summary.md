@@ -132,6 +132,13 @@ public Object listTasks(String status, AgentToolContext context)
 | # | 事项 | 影响 | 建议做法 |
 |---|---|---|---|
 | 1 | 真实模型仍未实测 | 中 | 有 Key 后跑一遍 `agent` / `sessions` / 确认链路。重点看真实 `tool_calls` 的 `arguments` 格式差异 |
+
+**真实 Key 的安全接入与验证路径（已备好工具）**：
+
+1. `cp .env.example .env`，在 `.env` 里填 `OPENAI_API_KEY` + 按 Key 提供方选 `AI_BASE_URL`/`AI_MODEL`（文件里有 DeepSeek / 百炼 / OpenAI 三组注释可直接切换）。`.env` 已被 `.gitignore` 忽略，密钥不进仓库
+2. **Key 只在编辑器里粘贴，不要贴进任何聊天/命令行**——聊天记录和 shell 历史都会留存
+3. 启动：`bash scripts/start-app-local.sh`（从 `.env` 注入环境变量，密钥不进命令行参数和日志；Key 为空时应用 fail-fast 拒绝启动，已实测）
+4. 验证：`python scripts/real-model-smoke.py`（约 14 项断言、6–8 次模型调用、成本约 0.01–0.05 元）。断言全部是协议级：category 落在枚举集合内、工具 trace 出现预期工具名、回答包含埋进工具返回的唯一标记、两阶段确认 + 重复确认 404。**不匹配任何具体文案**，真实模型输出不稳定也不会误报
 | 2 | 流式接口不支持工具 | 低 | 当前 `/chat/stream` 无工具；要做需要自定义 SSE 事件（tool_start/tool_result/delta/done） |
 | 3 | 失败重试会产生重复 user 消息 | 低 | 需要客户端消息 id 做幂等 |
 | 4 | 确认后落库失败无法重试 | 低 | 若要强可用，给 task 表加 `source_confirmation_id` 唯一索引 |
