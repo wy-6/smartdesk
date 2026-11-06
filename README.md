@@ -267,6 +267,7 @@ python scripts/week2-acceptance.py
 
 ## 文档
 
+- [**第 1–2 周总结（交接文档）**](docs/week1-2-summary.md) —— 先读这份：全部交付、验收数据、10 个坑、遗留事项、第 3 周计划
 - [第一周执行手册](docs/week1-guide.md) —— 逐日任务、验收命令、面试题
 - [第二周执行手册](docs/week2-guide.md) —— Day8–Day14 逐日任务、10 个踩坑、必须能回答的面试题
 - [第二周复盘](docs/week2-retrospective.md) —— 包结构重构评估、三个关键技术决策、限时面试答题骨架
