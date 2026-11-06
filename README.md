@@ -193,7 +193,7 @@ mvn -B test
 | `TaskControllerTest` | 14 | Web 切片测试（`@WebMvcTest` + MockMvc） |
 | `TaskIntegrationTest` | 9 | 集成测试（`@SpringBootTest` + 真实 MySQL） |
 
-端到端验收脚本（覆盖 Day8–Day12 共 36 项断言）：
+端到端验收脚本（覆盖 Day8–Day12 共 38 项断言，可重复运行）：
 
 ```bash
 python scripts/week2-acceptance.py
@@ -273,7 +273,7 @@ smartdesk/
 │   └── architecture.md        # 系统架构说明
 ├── scripts/
 │   ├── start-redis-dev.sh     # Redis dev 实例 start/stop/status/keys
-│   └── week2-acceptance.py    # 36 项端到端验收
+│   └── week2-acceptance.py    # 38 项端到端验收
 └── src/
     ├── main/java/com/smartdesk/
     │   ├── SmartDeskApplication.java

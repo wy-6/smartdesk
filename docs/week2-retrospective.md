@@ -15,9 +15,22 @@
 | 11 | JWT + Spring Security | 登录/注册 + 三层越权防护 | 改 URL id 读不到别人的数据 ✅ |
 | 12 | 配置 / 环境变量 / Docker | 4 套 profile + `.env.example` + Dockerfile | 生产配置 fail-fast ✅ |
 | 13 | 测试体系 | 50 个测试（单元 / 切片 / 集成） | `Tests run: 50, Failures: 0` ✅ |
-| 14 | 复盘 / 架构 / 面试 | 本文档 + `architecture.md` | 36 项端到端验收全通过 ✅ |
+| 14 | 复盘 / 架构 / 面试 | 本文档 + `architecture.md` | 38 项端到端验收全通过 ✅ |
 
-**硬指标**：50 个测试全绿 + 36 项端到端验收全过。
+**硬指标**：50 个测试全绿 + 38 项端到端验收全过（且连续跑两次结果一致）。
+
+> **验收脚本踩的第 5 个坑：脚本自己不能重复运行**
+>
+> 第一版脚本直接调注册接口建 `alice` / `bob`。第一次跑全绿，第二次跑必然崩：
+> 用户名已存在 → `USERNAME_EXISTS` → 后续所有断言连锁失败。
+> 根因是**验收脚本假设了数据库是一次性的干净状态**。
+>
+> 修法：`ensure_account()` 先试注册，失败就退回登录；再 `purge_tasks()` 清掉这两个账号
+> 的历史任务，让"N 个任务"这类精确计数断言在重复运行时依然成立。
+>
+> **教训**：验收脚本本身也是代码，也要有测试。判断标准很简单 ——
+> **连跑两次，结果必须一致**。做不到就说明它依赖了状态。
+> 这个习惯在 CI 里尤其重要：一次性的脚本在流水线里第二次跑就红。
 
 ---
 
@@ -162,6 +175,7 @@ public Task getByIdForOwner(Long id, Long ownerId) { ... }
 | 4 | `@WebMvcTest` 报 "No qualifying bean of type 'JwtService'" | 切片不加载普通 `@Component` | 切片测试需要显式 `@MockitoBean` 补齐外部依赖 |
 | 5 | 认证后仍返回 401 | `@WebMvcTest` 不加载普通 `@Configuration`，安全配置没生效 | 要 `@Import(SecurityConfig.class)` |
 | 6 | `RedisCacheWriter.builder()` 编译不过 | Boot 4 改成了静态工厂方法 | 同上，看文档 |
+| 7 | 验收脚本第二次跑就红 | 脚本假设数据库是干净的，账号已存在导致 `USERNAME_EXISTS` | **验收脚本必须可重复运行**，连跑两次结果一致 |
 
 **最值得记的一条是 #1**：它没有任何报错提示，缓存第一次写成功、第二次读就炸，
 而且报错信息（`LinkedHashMap cannot be cast to Task`）完全指向不了根因。

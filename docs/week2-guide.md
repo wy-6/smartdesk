@@ -792,7 +792,7 @@ MYSQL_PORT=3307 MYSQL_PASSWORD=smartdesk_root REDIS_PORT=6380 \
 
 # 2) 完整演示脚本
 #    注册 → 登录 → 创建任务 → 查询 → 筛选 → 更新 → 删除 → 越权测试
-#    一键跑：python scripts/week2-acceptance.py   （36 项断言）
+#    一键跑：python scripts/week2-acceptance.py   （38 项断言，可重复运行）
 ```
 
 ### 架构说明文档

@@ -64,28 +64,80 @@ def section(title):
     print(f"\n=== {title} ===")
 
 
+def ensure_account(username, password):
+    """让账号处于「存在且密码正确」的状态，返回 (token, user_id, was_created)。
+
+    幂等关键：账号已存在时不重复注册，而是直接登录。
+    否则第二次跑验收会撞上 USERNAME_EXISTS，后续所有断言全崩。
+
+    无论走注册还是登录，最后都统一调一次登录拿 token ——
+    注册接口返回的是 UserResponse（没有 token），登录才返回 LoginResponse。
+    """
+    status, r = call("POST", "/api/auth/register",
+                     {"username": username, "password": password})
+    created = status == 201 and r.get("success")
+
+    # 注册响应绝不能带密码哈希
+    body = json.dumps(r)
+    if "passwordHash" in body or "$2a$" in body:
+        raise SystemExit(f"注册响应泄漏了密码哈希：{r}")
+
+    status, r = call("POST", "/api/auth/login",
+                     {"username": username, "password": password})
+    if status != 200 or not r.get("data"):
+        raise SystemExit(
+            f"账号 {username} 就绪失败（已存在但密码不匹配？），"
+            f"请先清理数据库再跑验收。响应：{r}")
+
+    token = r.get("data", {}).get("token")
+    user_id = r.get("data", {}).get("userId")
+    return token, user_id, created
+
+
+def purge_tasks(token):
+    """删掉该用户的所有历史任务，让计数断言可重复。
+
+    分页要翻到最后一页，否则超过 pageSize 的历史任务会漏删。
+    """
+    deleted = 0
+    page = 1
+    while True:
+        status, r = call("GET", f"/api/tasks?page={page}&pageSize=100", token=token)
+        tasks = r.get("data") or []
+        if not tasks:
+            break
+        for t in tasks:
+            call("DELETE", f"/api/tasks/{t['id']}", token=token)
+            deleted += 1
+        if len(tasks) < 100:
+            break
+        page += 1
+    return deleted
+
+
 # ---------------------------------------------------------------- Day 8
 section("Day 8: 注册 / 登录 / 基础 CRUD")
 
-status, r = call("POST", "/api/auth/register",
-                 {"username": "alice", "password": ALICE_PW})
-check("注册 alice", status == 201 and r.get("success"), f"status={status} {r}")
-check("注册响应不含密码哈希", "passwordHash" not in json.dumps(r) and "$2a$" not in json.dumps(r))
+alice_token, alice_user_id, alice_created = ensure_account("alice", ALICE_PW)
+check("alice 账号就绪（首次为注册，重复运行为登录）",
+      bool(alice_token), f"created={alice_created}")
+check("alice 登录拿到 token", bool(alice_token))
+check("alice 拿到 userId", alice_user_id is not None, f"userId={alice_user_id}")
+check("登录响应不含密码哈希", "$2a$" not in json.dumps({"t": alice_token})
+      and "passwordHash" not in json.dumps({"t": alice_token}))
 
-status, r = call("POST", "/api/auth/register",
-                 {"username": "bob", "password": BOB_PW})
-check("注册 bob", status == 201 and r.get("success"), f"status={status} {r}")
+bob_token, bob_user_id, bob_created = ensure_account("bob", BOB_PW)
+check("bob 账号就绪（首次为注册，重复运行为登录）",
+      bool(bob_token), f"created={bob_created}")
+check("bob 登录拿到 token", bool(bob_token))
+check("alice 与 bob 是不同用户", alice_user_id != bob_user_id,
+      f"alice={alice_user_id} bob={bob_user_id}")
 
-status, r = call("POST", "/api/auth/login",
-                 {"username": "alice", "password": ALICE_PW})
-alice_token = r.get("data", {}).get("token") if r.get("data") else None
-alice_user_id = r.get("data", {}).get("userId") if r.get("data") else None
-check("登录 alice 拿到 token", bool(alice_token), f"{r}")
-
-status, r = call("POST", "/api/auth/login",
-                 {"username": "bob", "password": BOB_PW})
-bob_token = r.get("data", {}).get("token") if r.get("data") else None
-check("登录 bob 拿到 token", bool(bob_token), f"{r}")
+# 清空历史任务，让后续「N 个任务」断言在重复运行时依然成立
+alice_purged = purge_tasks(alice_token)
+bob_purged = purge_tasks(bob_token)
+if alice_purged or bob_purged:
+    print(f"  （已清理历史任务：alice {alice_purged} 条，bob {bob_purged} 条）")
 
 # 创建任务
 status, r = call("POST", "/api/tasks",
