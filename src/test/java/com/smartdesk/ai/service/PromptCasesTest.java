@@ -50,7 +50,7 @@ class PromptCasesTest {
 		properties.setRetryBaseMillis(1);
 		properties.getMock().setLatencyMillis(0);
 
-		service = new AiServiceImpl(ChatClient.create(new MockChatModel(properties)), new AiInvoker(properties),
+		service = new AiServiceImpl(ChatClient.create(new MockChatModel(properties, new tools.jackson.databind.ObjectMapper())), new AiInvoker(properties),
 				mock(AiCallLogService.class), new AiMetrics(new SimpleMeterRegistry(), properties), properties,
 				new TaskDraftParser(objectMapper), objectMapper);
 	}

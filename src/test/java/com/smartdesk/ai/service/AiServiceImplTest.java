@@ -64,7 +64,7 @@ class AiServiceImplTest {
 		properties.setMockChunkDelayMillis(0);
 
 		callLogService = mock(AiCallLogService.class);
-		ChatClient chatClient = ChatClient.create(new MockChatModel(properties));
+		ChatClient chatClient = ChatClient.create(new MockChatModel(properties, new tools.jackson.databind.ObjectMapper()));
 		service = new AiServiceImpl(chatClient, new AiInvoker(properties), callLogService,
 				new AiMetrics(new SimpleMeterRegistry(), properties), properties,
 				new TaskDraftParser(objectMapper), objectMapper);

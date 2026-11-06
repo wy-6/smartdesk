@@ -26,7 +26,7 @@ import com.smartdesk.ai.prompt.PromptTemplates;
  */
 class MockChatModelTest {
 
-	private final MockChatModel model = new MockChatModel(properties());
+	private final MockChatModel model = new MockChatModel(properties(), new tools.jackson.databind.ObjectMapper());
 
 	private static AiProperties properties() {
 		AiProperties properties = new AiProperties();
