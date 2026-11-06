@@ -1,0 +1,40 @@
+# ============================================================
+# .dockerignore —— 收敛 docker build 的构建上下文
+#
+# 不写这个文件时，docker build 会把项目目录整个发给 daemon：
+#   - target/ 可能有几百 MB 的构建产物（打进镜像毫无意义）
+#   - .git/ 全部历史
+#   - .env 里有真实密码 —— 会被 COPY src 意外带进构建上下文，
+#     虽然镜像里不一定有，但 build cache 和 context 都碰过它
+#
+# 白名单思路：只送 pom.xml、src、maven wrapper。
+# ============================================================
+
+# 版本控制与本地配置（.env 有密码，绝不能进构建上下文）
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# 构建产物（镜像里重新编译，旧的产物没用还巨大）
+target
+app.log
+
+# IDE 与系统文件
+.idea
+*.iml
+.vscode
+Thumbs.db
+.DS_Store
+
+# 文档与脚本：不影响构建，不进上下文
+docs
+scripts
+*.md
+LICENSE
+
+# Docker 自身
+Dockerfile
+compose.yaml
+.dockerignore

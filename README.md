@@ -254,6 +254,7 @@ python scripts/week2-acceptance.py
 - [第二周执行手册](docs/week2-guide.md) —— Day8–Day14 逐日任务、10 个踩坑、必须能回答的面试题
 - [第二周复盘](docs/week2-retrospective.md) —— 包结构重构评估、三个关键技术决策、限时面试答题骨架
 - [系统架构说明](docs/architecture.md) —— 一页纸架构图、请求链路、缓存与鉴权设计、决策记录
+- [Docker 环境方案](docs/docker-setup.md) —— 本机障碍诊断、云端 CI 验证、已修复的 4 个容器级 bug
 - [接口文档](docs/api.md) —— 待补充
 - [ER 图](docs/er.md) —— 待补充
 
@@ -265,12 +266,17 @@ python scripts/week2-acceptance.py
 smartdesk/
 ├── pom.xml                    # 版本锁定中心 + local/dev/prod 三个 Maven profile
 ├── compose.yaml               # MySQL + Redis 本地编排
-├── Dockerfile                 # 多阶段构建，非 root 用户 + HEALTHCHECK
+├── Dockerfile                 # 多阶段构建，非 root 用户 + curl + exec + HEALTHCHECK
+├── .dockerignore              # 收敛构建上下文（绝不让 .env 进去）
 ├── .env.example               # 环境变量模板（真实 .env 已被 .gitignore 忽略）
+├── .github/workflows/
+│   └── docker-verify.yml      # 云端构建镜像 + compose 编排 + 冒烟测试 + 优雅停机验证
 ├── docs/
 │   ├── week1-guide.md         # 第一周执行手册
 │   ├── week2-guide.md         # 第二周执行手册
-│   └── architecture.md        # 系统架构说明
+│   ├── week2-retrospective.md # 第二周复盘
+│   ├── architecture.md        # 系统架构说明
+│   └── docker-setup.md        # Docker 环境方案（障碍诊断 + 三条路径）
 ├── scripts/
 │   ├── start-redis-dev.sh     # Redis dev 实例 start/stop/status/keys
 │   └── week2-acceptance.py    # 38 项端到端验收

@@ -701,9 +701,14 @@ grep -rn "smartdesk_root" src/main/java/ || echo "✅ 代码里没有硬编码�
 SPRING_PROFILES_ACTIVE=local java -jar target/smartdesk-0.1.0-SNAPSHOT.jar --server.port=18080
 # 观察日志级别和 SQL 输出
 
-# 4) Docker（如果本机 Docker 可用）
-docker compose config    # 校验 compose 文件语法
-docker compose build     # 构建镜像
+# 4) Docker 验证（本机 Docker 起不来时的替代方案，见 docs/docker-setup.md）
+#    路径 C（离线静态，已通过）：
+"C:/Users/86181/.workbuddy/docker-tools/hadolint.exe" Dockerfile      # 0 告警
+"C:/Users/86181/.workbuddy/docker-tools/docker-compose.exe" -f compose.yaml config --quiet
+#    路径 B（云端真跑）：推 GitHub 后触发 docker-verify 工作流
+#    路径 A（本机真跑）：按 docs/docker-setup.md 解除 wsl.exe 封禁 + 装 Docker Desktop
+#    本机 Docker 可用后：
+docker compose up -d --wait && curl http://localhost:18080/api/health && docker compose down
 ```
 
 **必须能回答**：
