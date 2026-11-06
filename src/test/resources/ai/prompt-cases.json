@@ -1,0 +1,98 @@
+[
+  {
+    "id": "s01",
+    "scene": "summary",
+    "input": "本周完成了任务模块的分页与筛选，补了三个复合索引，EXPLAIN 显示 type=ref、rows=1。周三接入 Redis 缓存，写操作统一删缓存。周五把密钥全部改成环境变量，并补了 Dockerfile 与 compose 编排。",
+    "maxChars": 60
+  },
+  {
+    "id": "s02",
+    "scene": "summary",
+    "input": "会议结论：一、报销单据必须在费用发生后 30 天内提交，逾期不予受理；二、差旅需提前三天在系统里申请，紧急出差可事后补单但要部门负责人审批；三、所有发票必须查验真伪并留存截图。",
+    "maxChars": 80
+  },
+  {
+    "id": "s03",
+    "scene": "summary",
+    "input": "这个需求的核心是把知识库问答接口的错误码统一：检索不到证据返回 200 但 answer 为空并带 noEvidence 标记；模型超时返回 504；模型输出不合法返回 422；调用超限返回 429。前端按这三个码分别做重试、改写和提示。",
+    "maxChars": 100
+  },
+  {
+    "id": "s04",
+    "scene": "summary",
+    "input": "上线前检查项：数据库备份已执行、回滚脚本已准备、灰度比例先 10% 再 50%、监控看板已加 JVM 与接口 P99、告警群里已通知值班同学、变更单已审批。",
+    "maxChars": 50
+  },
+  {
+    "id": "c01",
+    "scene": "classify",
+    "input": "上传文档之后接口一直报错，返回 500，日志里是空指针",
+    "expectedCategory": "BUG"
+  },
+  {
+    "id": "c02",
+    "scene": "classify",
+    "input": "这个月的账单扣费金额不对，发票也开错了",
+    "expectedCategory": "BILLING"
+  },
+  {
+    "id": "c03",
+    "scene": "classify",
+    "input": "密码重置邮件收不到，账号登录不上",
+    "expectedCategory": "ACCOUNT"
+  },
+  {
+    "id": "c04",
+    "scene": "classify",
+    "input": "希望支持把任务导出成 Excel，能不能加这个功能",
+    "expectedCategory": "FEATURE"
+  },
+  {
+    "id": "c05",
+    "scene": "classify",
+    "input": "想了解一下你们的产品大概什么时候上线",
+    "expectedCategory": "OTHER"
+  },
+  {
+    "id": "d01",
+    "scene": "task_draft",
+    "input": "明天下午把季度报告写完，这个比较重要",
+    "expectedPriority": 4,
+    "expectDueDate": true
+  },
+  {
+    "id": "d02",
+    "scene": "task_draft",
+    "input": "紧急处理线上支付回调失败的问题，马上跟进",
+    "expectedPriority": 5,
+    "expectDueDate": false
+  },
+  {
+    "id": "d03",
+    "scene": "task_draft",
+    "input": "有空的时候整理一下接口文档，不急",
+    "expectedPriority": 1,
+    "expectDueDate": false
+  },
+  {
+    "id": "d04",
+    "scene": "task_draft",
+    "input": "2026-12-31 之前完成年度架构评审",
+    "expectedPriority": 3,
+    "expectDueDate": true
+  },
+  {
+    "id": "d05",
+    "scene": "task_draft",
+    "input": "把知识库的切片策略整理成一篇文档",
+    "expectedPriority": 3,
+    "expectDueDate": false
+  },
+  {
+    "id": "d06",
+    "scene": "task_draft",
+    "input": "后天之前给新同事做一次 Spring AI 的分享",
+    "expectedPriority": 3,
+    "expectDueDate": true
+  }
+]
