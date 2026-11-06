@@ -117,6 +117,20 @@ class RagEvaluationTest {
 					.as("配置 %s 的引用正确率", report.config().name())
 					.isGreaterThanOrEqualTo(0.85);
 		}
+		// 底线四：同义改写召回率不能为 0 —— 全 0 说明检索链路坏了（不是嵌入能力问题）
+		for (Report report : reports) {
+			assertThat(report.paraphraseHitRate())
+					.as("配置 %s 的同义改写召回率", report.config().name())
+					.isGreaterThan(0.5);
+		}
+		// 底线五：mock 嵌入只懂词面，改写后的召回率不应高于原题。
+		// 这条断言守着报告里「召回损失」那一栏的含义 —— 如果哪天换成真实语义嵌入
+		// 让改写召回反超原题，它会失败并提醒你重新解读报告。
+		for (Report report : reports) {
+			assertThat(report.paraphraseHitRate())
+					.as("配置 %s 的改写召回率不应超过原题召回率（词面匹配的必然结果）", report.config().name())
+					.isLessThanOrEqualTo(report.hitRateAtK() + 1e-9);
+		}
 	}
 
 	private Report run(Config config) {
@@ -138,7 +152,9 @@ class RagEvaluationTest {
 			int hitAtK = 0;
 			int citationCorrect = 0;
 			int unsupported = 0;
+			int paraphraseHitAtK = 0;
 			List<String> misses = new ArrayList<>();
+			List<String> paraphraseMisses = new ArrayList<>();
 
 			for (Question question : dataset.questions()) {
 				List<ChunkResponse> hits = retrievalService.search(ownerId, question.question(), config.topK(), null);
@@ -153,6 +169,22 @@ class RagEvaluationTest {
 				}
 				else {
 					misses.add(question.question() + "（期望：" + question.expectedKeyword() + "）");
+				}
+
+				// 同一道题的【同义改写】：措辞不同、答案相同。
+				// 这一步量化的是"检索只懂词面"的代价 ——
+				// 改写后召不回，说明用户换个说法就查不到资料。
+				String paraphrase = question.paraphrase();
+				if (paraphrase != null && !paraphrase.isBlank()) {
+					List<ChunkResponse> paraHits = retrievalService.search(ownerId, paraphrase, config.topK(), null);
+					boolean paraHit = paraHits.stream()
+							.anyMatch(hit -> hit.content().contains(question.expectedKeyword()));
+					if (paraHit) {
+						paraphraseHitAtK++;
+					}
+					else {
+						paraphraseMisses.add(paraphrase + "（期望：" + question.expectedKeyword() + "）");
+					}
 				}
 
 				// 引用正确率：按【完整片段内容】判定，不用截断摘要 ——
@@ -176,7 +208,8 @@ class RagEvaluationTest {
 			}
 
 			int total = dataset.questions().size();
-			return new Report(config, total, hitAt1, hitAtK, citationCorrect, unsupported, misses);
+			return new Report(config, total, hitAt1, hitAtK, citationCorrect, unsupported, misses,
+					paraphraseHitAtK, paraphraseMisses);
 		}
 		finally {
 			ragProperties.setChunkSize(originalSize);
@@ -239,6 +272,35 @@ class RagEvaluationTest {
 			sb.append("\n");
 		}
 
+		sb.append("\n## 词面匹配 vs 语义匹配（同义改写召回率）\n\n");
+		sb.append("每道题都有一个**同义改写**版本：措辞不同、答案关键词相同。")
+				.append("用户换个说法还能不能查到资料，直接决定了这个检索系统好不好用。\n\n");
+		sb.append("| 配置 | 原题 hit@k | 改写后 hit@k | 召回损失 |\n|---|---|---|---|\n");
+		for (Report report : reports) {
+			sb.append("| ").append(report.config().name()).append(" | ")
+					.append(percent(report.hitRateAtK())).append(" | ")
+					.append(percent(report.paraphraseHitRate())).append(" | ")
+					.append("-").append(percent(report.paraphraseLoss())).append(" |\n");
+		}
+		Report firstReport = reports.get(0);
+		sb.append("\n**这组数字量化了 mock 嵌入的能力边界。** ")
+				.append("默认配置下原题召回 ").append(percent(firstReport.hitRateAtK()))
+				.append("，换成同义说法后只剩 ").append(percent(firstReport.paraphraseHitRate()))
+				.append(" —— 差的不是检索算法，是**嵌入模型只懂词面、不懂语义**。\n");
+		sb.append("换成真实语义嵌入（百炼 `text-embedding-v3`）后，")
+				.append("「外派住宿一晚的花费上限」与「出差住酒店一晚上最多能报多少钱」")
+				.append("会落到相近向量，这一栏的损失会显著收窄。\n");
+		sb.append("\n### 改写后召不回的问题（默认配置）\n\n");
+		if (firstReport.paraphraseMisses().isEmpty()) {
+			sb.append("无 —— 30 道改写题全部命中。\n\n");
+		}
+		else {
+			for (String miss : firstReport.paraphraseMisses()) {
+				sb.append("- ").append(miss).append("\n");
+			}
+			sb.append("\n");
+		}
+
 		sb.append("## 从数据里读出来的结论\n\n");
 		sb.append("1. **切片大小必须按文档长度调，不是越大越好。**\n");
 		sb.append("   本次评测集的文档普遍在 200~400 字之间。当 chunk-size=800 时，")
@@ -254,7 +316,10 @@ class RagEvaluationTest {
 				.append("引用约束还不够。本项目三种配置的「引用错误数」都是 0 —— ")
 				.append("因为引用列表由检索结果生成，模型只能引用真实存在的编号。\n");
 		sb.append("5. **本评测用的是离线 mock 嵌入（词元哈希）**，衡量的是词面重叠能力。")
-				.append("换成真实语义嵌入后 hit@1 通常会明显上升（“语义相近但词面不同”的查询")
+				.append("上面「同义改写召回率」那一节把这个局限量化出来了：换成同义说法后，")
+				.append("召回率从 ").append(percent(firstReport.hitRateAtK()))
+				.append(" 掉到 ").append(percent(firstReport.paraphraseHitRate()))
+				.append("。换成真实语义嵌入后 hit@1 通常会明显上升（“语义相近但词面不同”的查询")
 				.append("也能召回），但**相对**结论（切片别太大、重叠有用、K 别贪多）依然成立。\n");
 
 		Path report = Path.of("docs", "week5-eval-result.md");
@@ -269,14 +334,14 @@ class RagEvaluationTest {
 	private record Document(String title, String content) {
 	}
 
-	private record Question(String question, String expectedKeyword, String expectedDocument) {
+	private record Question(String question, String expectedKeyword, String expectedDocument, String paraphrase) {
 	}
 
 	private record Dataset(List<Document> documents, List<Question> questions) {
 	}
 
 	private record Report(Config config, int total, int hitAt1, int hitAtK, int citationCorrect,
-			int unsupportedCount, List<String> misses) {
+			int unsupportedCount, List<String> misses, int paraphraseHitAtK, List<String> paraphraseMisses) {
 
 		double hitRateAt1() {
 			return total == 0 ? 0 : (double) hitAt1 / total;
@@ -288,6 +353,16 @@ class RagEvaluationTest {
 
 		double citationAccuracy() {
 			return total == 0 ? 0 : (double) citationCorrect / total;
+		}
+
+		/** 同义改写后的召回率 —— 衡量"只懂词面"这件事的代价。 */
+		double paraphraseHitRate() {
+			return total == 0 ? 0 : (double) paraphraseHitAtK / total;
+		}
+
+		/** 改写造成的召回损失（百分点）。 */
+		double paraphraseLoss() {
+			return hitRateAtK() - paraphraseHitRate();
 		}
 
 	}

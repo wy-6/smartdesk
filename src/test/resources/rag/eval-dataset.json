@@ -1,5 +1,5 @@
 {
-  "description": "SmartDesk 第 5 周 RAG 检索评测集（Day34）。10 份文档 + 30 道问题。每道问题带一个期望关键词：只要召回的片段里出现了这个关键词，就算命中。",
+  "description": "SmartDesk 第 5 周 RAG 检索评测集（Day34）。10 份文档 + 30 道问题。每道问题带一个期望关键词：只要召回的片段里出现了这个关键词，就算命中。\n每道题带 paraphrase（同义改写）：措辞不同、答案关键词相同，用来量化『词面匹配 vs 语义匹配』的召回差距。",
   "documents": [
     {
       "title": "差旅报销制度",
@@ -43,35 +43,185 @@
     }
   ],
   "questions": [
-    { "question": "出差住酒店一晚上最多能报多少钱？", "expectedKeyword": "600", "expectedDocument": "差旅报销制度" },
-    { "question": "二线城市的住宿费标准是多少？", "expectedKeyword": "450", "expectedDocument": "差旅报销制度" },
-    { "question": "市内打车超过多少钱要写说明？", "expectedKeyword": "200", "expectedDocument": "差旅报销制度" },
-    { "question": "采购 3 万元的设备需要谁审批？", "expectedKeyword": "总监", "expectedDocument": "采购审批流程" },
-    { "question": "超过多少钱的采购合同法务必须审核？", "expectedKeyword": "20000", "expectedDocument": "采购审批流程" },
-    { "question": "紧急采购可以先斩后奏吗？几天内补单？", "expectedKeyword": "3 个工作日", "expectedDocument": "采购审批流程" },
-    { "question": "机密数据可以用微信传吗？", "expectedKeyword": "禁止", "expectedDocument": "信息安全规范" },
-    { "question": "密码最少多少位？多久换一次？", "expectedKeyword": "12", "expectedDocument": "信息安全规范" },
-    { "question": "高危漏洞要在几天内修完？", "expectedKeyword": "7 天", "expectedDocument": "信息安全规范" },
-    { "question": "弹性上班最早可以几点到？", "expectedKeyword": "8 点", "expectedDocument": "考勤与假期管理" },
-    { "question": "入职满 3 年有多少天年假？", "expectedKeyword": "10 天", "expectedDocument": "考勤与假期管理" },
-    { "question": "连续病假几天要开医院证明？", "expectedKeyword": "3 个工作日", "expectedDocument": "考勤与假期管理" },
-    { "question": "合并代码至少要几个人评审？", "expectedKeyword": "评审人", "expectedDocument": "研发效能规范" },
-    { "question": "自动化测试通过率要求是多少？", "expectedKeyword": "95%", "expectedDocument": "研发效能规范" },
-    { "question": "阻塞级缺陷多久必须修完？", "expectedKeyword": "24 小时", "expectedDocument": "研发效能规范" },
-    { "question": "客户投诉多久要首次响应？", "expectedKeyword": "2 小时", "expectedDocument": "客户投诉处理流程" },
-    { "question": "投诉要多长时间给出解决方案？", "expectedKeyword": "24 小时", "expectedDocument": "客户投诉处理流程" },
-    { "question": "投诉回访记录要保存多久？", "expectedKeyword": "1 年", "expectedDocument": "客户投诉处理流程" },
-    { "question": "报销单据在哪个系统提交？", "expectedKeyword": "OA 系统", "expectedDocument": "财务报销操作手册" },
-    { "question": "财务每周几批统一打款？", "expectedKeyword": "每周三", "expectedDocument": "财务报销操作手册" },
-    { "question": "报销单据保存几年？", "expectedKeyword": "5 年", "expectedDocument": "财务报销操作手册" },
-    { "question": "会议室最长能订几小时？", "expectedKeyword": "4 小时", "expectedDocument": "会议室与办公用品管理" },
-    { "question": "办公用品每季度额度多少？", "expectedKeyword": "600", "expectedDocument": "会议室与办公用品管理" },
-    { "question": "会议室设备故障多久要报修？", "expectedKeyword": "2 小时", "expectedDocument": "会议室与办公用品管理" },
-    { "question": "收集用户个人信息要满足什么条件？", "expectedKeyword": "最小必要", "expectedDocument": "数据合规与隐私保护" },
-    { "question": "用户要求删除数据，多久内要响应？", "expectedKeyword": "15 个工作日", "expectedDocument": "数据合规与隐私保护" },
-    { "question": "同意记录要留存几年？", "expectedKeyword": "3 年", "expectedDocument": "数据合规与隐私保护" },
-    { "question": "一年考核几次？分别在什么时候？", "expectedKeyword": "每半年", "expectedDocument": "绩效考核办法" },
-    { "question": "S 档最多能占多少人？", "expectedKeyword": "5%", "expectedDocument": "绩效考核办法" },
-    { "question": "业务指标在考核里占多少权重？", "expectedKeyword": "60%", "expectedDocument": "绩效考核办法" }
+    {
+      "question": "出差住酒店一晚上最多能报多少钱？",
+      "expectedKeyword": "600",
+      "expectedDocument": "差旅报销制度",
+      "paraphrase": "外派住宿一晚的花费上限是多少？"
+    },
+    {
+      "question": "二线城市的住宿费标准是多少？",
+      "expectedKeyword": "450",
+      "expectedDocument": "差旅报销制度",
+      "paraphrase": "非一线城市的过夜费额度"
+    },
+    {
+      "question": "市内打车超过多少钱要写说明？",
+      "expectedKeyword": "200",
+      "expectedDocument": "差旅报销制度",
+      "paraphrase": "市内叫车单笔超过多少需要附行程"
+    },
+    {
+      "question": "采购 3 万元的设备需要谁审批？",
+      "expectedKeyword": "总监",
+      "expectedDocument": "采购审批流程",
+      "paraphrase": "三万元左右的置办要哪位领导签字"
+    },
+    {
+      "question": "超过多少钱的采购合同法务必须审核？",
+      "expectedKeyword": "20000",
+      "expectedDocument": "采购审批流程",
+      "paraphrase": "多少金额以上的合约必须过法务"
+    },
+    {
+      "question": "紧急采购可以先斩后奏吗？几天内补单？",
+      "expectedKeyword": "3 个工作日",
+      "expectedDocument": "采购审批流程",
+      "paraphrase": "加急购置能先做后报吗？多久补手续"
+    },
+    {
+      "question": "机密数据可以用微信传吗？",
+      "expectedKeyword": "禁止",
+      "expectedDocument": "信息安全规范",
+      "paraphrase": "绝密资料能否用私人聊天软件传送"
+    },
+    {
+      "question": "密码最少多少位？多久换一次？",
+      "expectedKeyword": "12",
+      "expectedDocument": "信息安全规范",
+      "paraphrase": "口令最少几位？多长时间要更换"
+    },
+    {
+      "question": "高危漏洞要在几天内修完？",
+      "expectedKeyword": "7 天",
+      "expectedDocument": "信息安全规范",
+      "paraphrase": "严重安全隐患几天内必须整改"
+    },
+    {
+      "question": "弹性上班最早可以几点到？",
+      "expectedKeyword": "8 点",
+      "expectedDocument": "考勤与假期管理",
+      "paraphrase": "弹性工时最早几点能到岗"
+    },
+    {
+      "question": "入职满 3 年有多少天年假？",
+      "expectedKeyword": "10 天",
+      "expectedDocument": "考勤与假期管理",
+      "paraphrase": "工作三年能有多少天休假"
+    },
+    {
+      "question": "连续病假几天要开医院证明？",
+      "expectedKeyword": "3 个工作日",
+      "expectedDocument": "考勤与假期管理",
+      "paraphrase": "连续生病请病假多少天要医院的凭证"
+    },
+    {
+      "question": "合并代码至少要几个人评审？",
+      "expectedKeyword": "评审人",
+      "expectedDocument": "研发效能规范",
+      "paraphrase": "代码合入最少要有几人签核"
+    },
+    {
+      "question": "自动化测试通过率要求是多少？",
+      "expectedKeyword": "95%",
+      "expectedDocument": "研发效能规范",
+      "paraphrase": "自动化的用例通过率门槛"
+    },
+    {
+      "question": "阻塞级缺陷多久必须修完？",
+      "expectedKeyword": "24 小时",
+      "expectedDocument": "研发效能规范",
+      "paraphrase": "阻断级的问题多久要解决"
+    },
+    {
+      "question": "客户投诉多久要首次响应？",
+      "expectedKeyword": "2 小时",
+      "expectedDocument": "客户投诉处理流程",
+      "paraphrase": "客户抱怨后多久要有第一次回应"
+    },
+    {
+      "question": "投诉要多长时间给出解决方案？",
+      "expectedKeyword": "24 小时",
+      "expectedDocument": "客户投诉处理流程",
+      "paraphrase": "投诉后多久要给处理办法"
+    },
+    {
+      "question": "投诉回访记录要保存多久？",
+      "expectedKeyword": "1 年",
+      "expectedDocument": "客户投诉处理流程",
+      "paraphrase": "投诉的跟进记录要留存多长时间"
+    },
+    {
+      "question": "报销单据在哪个系统提交？",
+      "expectedKeyword": "OA 系统",
+      "expectedDocument": "财务报销操作手册",
+      "paraphrase": "费用单据在什么平台递交"
+    },
+    {
+      "question": "财务每周几批统一打款？",
+      "expectedKeyword": "每周三",
+      "expectedDocument": "财务报销操作手册",
+      "paraphrase": "财务每周有几次集中付款"
+    },
+    {
+      "question": "报销单据保存几年？",
+      "expectedKeyword": "5 年",
+      "expectedDocument": "财务报销操作手册",
+      "paraphrase": "费用单据要留存多少年"
+    },
+    {
+      "question": "会议室最长能订几小时？",
+      "expectedKeyword": "4 小时",
+      "expectedDocument": "会议室与办公用品管理",
+      "paraphrase": "会议房间最长能用多久"
+    },
+    {
+      "question": "办公用品每季度额度多少？",
+      "expectedKeyword": "600",
+      "expectedDocument": "会议室与办公用品管理",
+      "paraphrase": "每季度的办公耗材预算是多少"
+    },
+    {
+      "question": "会议室设备故障多久要报修？",
+      "expectedKeyword": "2 小时",
+      "expectedDocument": "会议室与办公用品管理",
+      "paraphrase": "房间里的设施坏了多久要申请维修"
+    },
+    {
+      "question": "收集用户个人信息要满足什么条件？",
+      "expectedKeyword": "最小必要",
+      "expectedDocument": "数据合规与隐私保护",
+      "paraphrase": "收集用户资料需要满足哪条要求"
+    },
+    {
+      "question": "用户要求删除数据，多久内要响应？",
+      "expectedKeyword": "15 个工作日",
+      "expectedDocument": "数据合规与隐私保护",
+      "paraphrase": "用户要求删数据，多少天内必须回应"
+    },
+    {
+      "question": "同意记录要留存几年？",
+      "expectedKeyword": "3 年",
+      "expectedDocument": "数据合规与隐私保护",
+      "paraphrase": "用户授权的凭证要保存多少年"
+    },
+    {
+      "question": "一年考核几次？分别在什么时候？",
+      "expectedKeyword": "每半年",
+      "expectedDocument": "绩效考核办法",
+      "paraphrase": "一年做几轮绩效评估？各在何时"
+    },
+    {
+      "question": "S 档最多能占多少人？",
+      "expectedKeyword": "5%",
+      "expectedDocument": "绩效考核办法",
+      "paraphrase": "最高等级的绩效比例上限是多少"
+    },
+    {
+      "question": "业务指标在考核里占多少权重？",
+      "expectedKeyword": "60%",
+      "expectedDocument": "绩效考核办法",
+      "paraphrase": "考核打分里业绩成果占多大比重"
+    }
   ]
 }

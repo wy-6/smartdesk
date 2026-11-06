@@ -197,7 +197,7 @@ curl -i http://localhost:18080/api/tasks
 
 ```bash
 mvn -B test
-# 期望：Tests run: 195, Failures: 0, Errors: 0
+# 期望：Tests run: 200, Failures: 0, Errors: 0
 ```
 
 测试分布：
@@ -225,7 +225,8 @@ mvn -B test
 | `MockEmbeddingModelTest` | 6 | 确定性、归一化、相似度语义（Week5） |
 | `MySqlKnowledgeVectorStoreTest` | 8 | 无 owner 过滤 → 拒绝、SQL 带 owner_id（Week5） |
 | `KnowledgeIntegrationTest` | 18 | 真实 MySQL：越权隔离、重复导入、引用对齐、拒答（Week5） |
-| `RagEvaluationTest` | 1（30 题 × 3 配置） | 检索 hit@1/hit@k 与引用正确率评测（Week5） |
+| `RagEvaluationTest` | 1（30 题 × 3 配置） | 检索 hit@1/hit@k、引用正确率、同义改写召回率（Week5） |
+| `MockChatModelRagTest` | 5 | mock 的 RAG 渲染：选最贴题句子、引用编号、无交集兜底（Week5） |
 
 端到端验收脚本（均可重复运行）：
 
@@ -426,6 +427,8 @@ smartdesk/
 │   ├── start-redis-dev.sh     # Redis dev 实例 start/stop/status/keys
 │   ├── start-app-local.sh     # 读取 .env 启动应用（密钥不进命令行与日志）
 │   ├── real-model-smoke.py    # 真实模型冒烟（provider 无关，协议级断言）
+│   ├── demo-knowledge.py      # 知识库演示：导入 → 检索 → 引用问答 → 拒答
+│   ├── probe-embedding-boundary.py  # 探针：不同措辞的检索得分分布
 │   ├── week2-acceptance.py    # 38 项端到端验收
 │   ├── week3-acceptance.py    # 55 项 AI 链路验收
 │   ├── week4-acceptance.py    # 46 项工具调用验收
