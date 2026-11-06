@@ -5,9 +5,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -598,10 +600,17 @@ public class MockChatModel implements ToolAwareChatModel {
 	 *
 	 * <p>规则：
 	 * <ol>
-	 *   <li>有资料：取第一条（分数最高的）资料，摘出它的第一句作为答案，标 [1]</li>
+	 *   <li>有资料：在<b>第一条（分数最高的）资料内部</b>定位与问题最相关的那一句，
+	 *       标上该资料的编号。资料是按检索得分降序传的，所以第一条就是最相关的那片</li>
 	 *   <li>没资料：返回拒答话术（正常流程下服务层会在调模型前就拒答，
 	 *       这里只是兜底）</li>
 	 * </ol>
+	 *
+	 * <p><b>为什么不直接取第一片的第一句？</b>
+	 * 一个切片常常含多个小节（年假制度 + 报销制度 + 考勤制度），
+	 * 永远取第一句会出现"问住宿费、答年假制度"的答非所问。
+	 * 按词元重叠选句，mock 的回答就跟得上问题了。
+	 * 注意这仍然只是近似：真实模型是读完整段资料后自己组织语言的。
 	 */
 	private String renderRag(String user) {
 		List<String[]> materials = parseMaterials(user);
@@ -612,8 +621,129 @@ public class MockChatModel implements ToolAwareChatModel {
 		String index = first[0];
 		String source = first[1];
 		String content = first[2];
-		String sentence = firstSentence(content);
+		String sentence = mostRelevantSentence(content, extractQuestion(user));
+		if (sentence == null) {
+			// 问题与资料没有任何词元交集 → 退回第一句，保证行为可预期
+			sentence = firstSentence(content);
+		}
 		return "根据资料[" + index + "]（来源：" + source + "）：" + sentence + " [" + index + "]";
+	}
+
+	/**
+	 * 从用户消息里取出问题部分。
+	 *
+	 * <p>格式由 RagPromptTemplates.userMessage 固定：资料区块之后是「问题：xxx」。
+	 */
+	private String extractQuestion(String user) {
+		int idx = user.lastIndexOf("问题：");
+		if (idx < 0) {
+			return "";
+		}
+		return user.substring(idx + "问题：".length()).strip();
+	}
+
+	/**
+	 * 在资料内容里找出与问题词元重叠最多的那一句。
+	 *
+	 * <p>分词规则与 {@code MockEmbeddingModel} 保持一致：中文按二元组、
+	 * 英文数字按单词 —— 这样 mock 回答的"贴题程度"和检索的召回逻辑是同一套标准。
+	 *
+	 * @return 最相关的一句；没有任何交集时返回 {@code null}
+	 */
+	private String mostRelevantSentence(String content, String question) {
+		Set<String> questionTokens = tokenize(question);
+		if (questionTokens.isEmpty()) {
+			return null;
+		}
+		String best = null;
+		int bestOverlap = 0;
+		for (String sentence : splitSentences(content)) {
+			int overlap = 0;
+			for (String token : tokenize(sentence)) {
+				if (questionTokens.contains(token)) {
+					overlap++;
+				}
+			}
+			if (overlap > bestOverlap) {
+				bestOverlap = overlap;
+				best = sentence;
+			}
+		}
+		return best;
+	}
+
+	/** 按中文句号、问号、感叹号和换行断句。 */
+	private List<String> splitSentences(String content) {
+		List<String> sentences = new ArrayList<>();
+		StringBuilder current = new StringBuilder();
+		for (int i = 0; i < content.length(); i++) {
+			char c = content.charAt(i);
+			current.append(c);
+			if (c == '。' || c == '！' || c == '？' || c == '\n') {
+				String s = current.toString().strip();
+				if (!s.isEmpty()) {
+					sentences.add(s);
+				}
+				current.setLength(0);
+			}
+		}
+		String tail = current.toString().strip();
+		if (!tail.isEmpty()) {
+			sentences.add(tail);
+		}
+		return sentences;
+	}
+
+	/**
+	 * 轻量分词：中文二元组 + 英文数字单词。
+	 *
+	 * <p>与 MockEmbeddingModel 的切分规则一致（中文不用分词器，二元组粒度刚好）。
+	 */
+	private Set<String> tokenize(String text) {
+		Set<String> tokens = new HashSet<>();
+		String lower = text.toLowerCase();
+		StringBuilder ascii = new StringBuilder();
+		StringBuilder cjk = new StringBuilder();
+		for (int i = 0; i < lower.length(); i++) {
+			char c = lower.charAt(i);
+			if (isCjk(c)) {
+				flushAscii(ascii, tokens);
+				cjk.append(c);
+			}
+			else if (Character.isLetterOrDigit(c)) {
+				flushCjk(cjk, tokens);
+				ascii.append(c);
+			}
+			else {
+				flushAscii(ascii, tokens);
+				flushCjk(cjk, tokens);
+			}
+		}
+		flushAscii(ascii, tokens);
+		flushCjk(cjk, tokens);
+		return tokens;
+	}
+
+	private void flushAscii(StringBuilder buffer, Set<String> tokens) {
+		if (buffer.length() > 0) {
+			tokens.add(buffer.toString());
+			buffer.setLength(0);
+		}
+	}
+
+	private void flushCjk(StringBuilder buffer, Set<String> tokens) {
+		if (buffer.length() == 1) {
+			tokens.add(buffer.toString());
+		}
+		for (int i = 0; i + 1 < buffer.length(); i++) {
+			tokens.add(buffer.substring(i, i + 2));
+		}
+		buffer.setLength(0);
+	}
+
+	private static boolean isCjk(char c) {
+		return (c >= '一' && c <= '鿿') || (c >= '㐀' && c <= '䶿')
+				|| (c >= '豈' && c <= '﫿');
 	}
 
 	/**
