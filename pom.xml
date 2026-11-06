@@ -21,6 +21,10 @@
 		<spring-ai.version>2.0.1</spring-ai.version>
 		<!-- MyBatis-Plus 3.5.15+ 才正式兼容 Spring Boot 4 -->
 		<mybatis-plus.version>3.5.17</mybatis-plus.version>
+		<!-- Day11：JWT 库版本。0.12.x 是当前主流，API 与 0.11 有 breaking change -->
+		<jjwt.version>0.12.6</jjwt.version>
+		<!-- Day13：Testcontainers 版本 -->
+		<testcontainers.version>1.21.3</testcontainers.version>
 	</properties>
 
 	<dependencyManagement>
@@ -84,6 +88,37 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-redis</artifactId>
 		</dependency>
+		<!-- Day10：Spring Cache 抽象。@Cacheable/@CacheEvict 依赖它，
+		     Redis 只是它的底层实现，换 Caffeine/Memcached 不用改业务代码 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
+		</dependency>
+
+		<!-- ============ Week2 引入鉴权 ============ -->
+		<!-- Day11：Spring Security。Boot 4 对应 Security 7.x -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<!-- Day11：JWT。三件套：api 编译、impl 实现、jackson 序列化 -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>${jjwt.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
 
 		<!-- ============ 测试 ============ -->
 		<dependency>
@@ -106,6 +141,34 @@
 			<artifactId>spring-boot-starter-actuator-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- Day13：数据库集成测试。Testcontainers 起真实 MySQL 容器，
+		     避免用 H2 产生"本地能过、生产报错"的假象（MySQL 方言差异多） -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>mysql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<!-- Day13：Spring Security 的测试支持。
+		     提供 @WithMockUser / SecurityMockMvcRequestPostProcessors，
+		     让 Web 层测试能模拟"已登录"状态，不用真的去签 JWT。 -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -116,5 +179,50 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<!--
+		==================================================================
+		Day12：Maven profile —— 区分"本地开发"和"部署构建"
+		==================================================================
+		用法：
+		  mvn -P local  package    本地开发构建（默认打包跳过测试，快）
+		  mvn -P dev    package    部署构建：跑全部测试 + 打可执行 jar
+		  mvn -P prod   package    生产构建：额外生成带版本号的归档
+
+		面试点：profile 解决的是"同一份代码，不同环境构建策略不同"的问题。
+		和 Spring Profile 的区别：
+		  - Maven Profile  = 构建期生效（决定打什么包、跑不跑测试）
+		  - Spring Profile = 运行期生效（决定读哪份配置）
+		两者名字故意做成一样，方便记忆，但作用时机完全不同。
+	-->
+	<profiles>
+		<!-- 本地开发：默认激活，跳过测试以加快迭代 -->
+		<profile>
+			<id>local</id>
+			<activation>
+				<activeByDefault>true</activeByDefault>
+			</activation>
+			<properties>
+				<skipITs>true</skipITs>
+			</properties>
+		</profile>
+
+		<!-- 开发/测试环境部署：跑全部测试 -->
+		<profile>
+			<id>dev</id>
+			<properties>
+				<skipITs>false</skipITs>
+			</properties>
+		</profile>
+
+		<!-- 生产环境构建 -->
+		<profile>
+			<id>prod</id>
+			<properties>
+				<skipITs>true</skipITs>
+				<maven.test.skip>true</maven.test.skip>
+			</properties>
+		</profile>
+	</profiles>
 
 </project>

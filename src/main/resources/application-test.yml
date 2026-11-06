@@ -1,0 +1,44 @@
+# ============================================================
+# 测试环境（Spring Profile: test）
+#
+# 激活方式：
+#   mvn test
+#   （测试类用 @ActiveProfiles("test")）
+#
+# 特点：
+#   - 日志收敛到 WARN，避免刷屏
+#   - 关闭 SQL 打印
+#   - 健康检查不暴露详情
+# ============================================================
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3307}/${MYSQL_DATABASE:smartdesk_test}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:smartdesk_root}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6380}
+      password: ${REDIS_PASSWORD:smartdesk_root}
+      # 测试环境用独立的 db 编号，测试数据不污染开发数据
+      database: 1
+
+mybatis-plus:
+  configuration:
+    # 测试时关掉 SQL 打印，否则日志会被淹没
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  level:
+    root: WARN
+    com.smartdesk: INFO
+
+management:
+  endpoint:
+    health:
+      show-details: never

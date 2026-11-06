@@ -9,8 +9,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -56,6 +59,64 @@ public class GlobalExceptionHandler {
 		log.warn("请求体解析失败: {}", ex.getMessage());
 		return ResponseEntity.badRequest()
 				.body(ApiResponse.failure("MALFORMED_REQUEST", "请求体格式错误，请检查 JSON 结构和字段类型"));
+	}
+
+	/**
+	 * 单个参数绑定失败（Day9 新增）。
+	 *
+	 * <p><b>典型场景</b>：路径变量或查询参数的类型转换失败。
+	 * <pre>
+	 * GET /api/tasks/abc   →  "abc" 转 Long 失败
+	 * GET /api/tasks?page=x → "x" 转 int 失败
+	 * </pre>
+	 *
+	 * <p>这类异常如果不处理，前端拿到的是 500（因为兜底 handler 抓走了），
+	 * 但它本质上是<b>客户端的错</b>，应该返回 400。
+	 *
+	 * <p>面试可讲：{@code MethodArgumentTypeMismatchException} vs
+	 * {@code MissingServletRequestParameterException} vs
+	 * {@code HttpMessageNotReadableException} 的区别：
+	 * 前两个是"URL 上的参数"出错，后一个是"请求体"出错。
+	 */
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+		log.warn("参数类型不匹配: name={} value={}", ex.getName(), ex.getValue());
+		return ResponseEntity.badRequest()
+				.body(ApiResponse.failure("INVALID_PARAMETER",
+						"参数 '" + ex.getName() + "' 的值 '" + ex.getValue() + "' 格式不正确"));
+	}
+
+	/**
+	 * 缺少必填参数（Day9 新增）。
+	 *
+	 * <p>例如接口声明了 {@code @RequestParam String status}（required 默认 true），
+	 * 但调用时没传这个参数。
+	 */
+	@ExceptionHandler(MissingServletRequestParameterException.class)
+	public ResponseEntity<ApiResponse<Void>> handleMissingParam(MissingServletRequestParameterException ex) {
+		log.warn("缺少必填参数: {}", ex.getParameterName());
+		return ResponseEntity.badRequest()
+				.body(ApiResponse.failure("MISSING_PARAMETER", "缺少必填参数: " + ex.getParameterName()));
+	}
+
+	/**
+	 * 方法级参数校验失败（Day9 新增）。
+	 *
+	 * <p>和 {@code MethodArgumentNotValidException} 的区别：
+	 * <ul>
+	 *   <li>{@code MethodArgumentNotValidException}：DTO 对象上的 {@code @Valid} 校验失败</li>
+	 *   <li>{@code HandlerMethodValidationException}：直接在方法参数上写的约束失败，
+	 *       比如 {@code @RequestParam @Min(1) int page}</li>
+	 * </ul>
+	 * Spring Boot 3.2+ / Spring 6.1+ 引入了方法级校验，
+	 * 报的是 {@code HandlerMethodValidationException} 而不是老版本的
+	 * {@code ConstraintViolationException}。
+	 */
+	@ExceptionHandler(HandlerMethodValidationException.class)
+	public ResponseEntity<ApiResponse<Void>> handleMethodValidation(HandlerMethodValidationException ex) {
+		log.warn("方法参数校验失败: {}", ex.getMessage());
+		return ResponseEntity.badRequest()
+				.body(ApiResponse.failure("VALIDATION_ERROR", "参数校验失败，请检查参数取值范围"));
 	}
 
 	/**

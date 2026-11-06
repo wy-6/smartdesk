@@ -1,6 +1,9 @@
 # ============================================================
-# SmartDesk 应用配置
-# 敏感信息一律走环境变量，不写死在仓库里（验收清单明确要求）
+# SmartDesk 基础配置（所有环境共享）
+#
+# Day12 要点：敏感信息一律走环境变量，不写死在仓库里。
+# 写法：${VAR:default} —— 有环境变量用环境变量，没有用默认值。
+# 这样同一份配置文件，本地、测试、生产都能用。
 # ============================================================
 spring:
   application:
@@ -13,11 +16,28 @@ spring:
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: ${DB_POOL_SIZE:10}
       minimum-idle: 2
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+
+  # ---------------- Redis ----------------
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6380}
+      password: ${REDIS_PASSWORD:smartdesk_root}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:3s}
+      lettuce:
+        pool:
+          # 连接池参数：Redis 连接是 IO 密集型，
+          # 池子太小会在高并发时排队，太大则浪费连接
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 3s
 
   # ---------------- Jackson / JSON ----------------
   # Spring Boot 4 默认使用 Jackson 3（包名 tools.jackson）。
@@ -48,7 +68,7 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     # 开发阶段打印 SQL 和参数，定位问题非常有用
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}
   global-config:
     banner: false
     db-config:
@@ -77,11 +97,20 @@ management:
     health:
       show-details: when-authorized
 
+# ---------------- JWT（Day11）----------------
+smartdesk:
+  jwt:
+    # 生产环境必须通过 JWT_SECRET 环境变量注入。
+    # 这里给一个开发默认值，长度必须 >= 32 字节（HS256 要求）。
+    # 部署时用：export JWT_SECRET="$(openssl rand -base64 48)"
+    secret: ${JWT_SECRET:dev-only-secret-key-must-be-changed-in-production-0123456789}
+    expiration-seconds: ${JWT_EXPIRATION:7200}
+
 # ---------------- 日志 ----------------
 logging:
   level:
-    root: INFO
-    com.smartdesk: DEBUG
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.smartdesk: ${LOG_LEVEL_APP:DEBUG}
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
 

@@ -1,0 +1,71 @@
+# ============================================================
+# 生产环境（Spring Profile: prod）
+#
+# 激活方式：
+#   export SPRING_PROFILES_ACTIVE=prod
+#   java -jar app.jar
+#
+# ============================================================
+# 生产环境的铁律：
+#   1. 所有敏感信息来自环境变量，这里【一个默认值都不给】
+#      ${MYSQL_PASSWORD} 而不是 ${MYSQL_PASSWORD:}
+#      区别：带默认值 = 没配也能启动（生产环境 = 裸奔）
+#            不带默认值 = 没配就启动失败（fail fast）
+#      Spring Boot 3.4+ 的 configtree / placeholder 缺失会直接抛异常，
+#      这正是我们想要的"快速失败"。
+#   2. 日志级别收紧到 INFO/WARN
+#   3. 关闭一切调试开关
+# ============================================================
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:smartdesk}?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER}
+    # 不给默认值：生产必须显式配置
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 5
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+mybatis-plus:
+  configuration:
+    # 生产环境绝不打印 SQL：日志量大、还可能泄露业务数据
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+smartdesk:
+  jwt:
+    # 生产必须显式提供 JWT_SECRET，没有默认值
+    secret: ${JWT_SECRET}
+    expiration-seconds: ${JWT_EXPIRATION:7200}
+
+logging:
+  level:
+    root: WARN
+    com.smartdesk: INFO
+  file:
+    name: ${LOG_FILE:/var/log/smartdesk/app.log}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 生产环境只暴露健康检查，其他端点一律关闭
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+server:
+  # 生产用 Tomcat 线程池默认值之外，再压一压最大连接数
+  tomcat:
+    max-threads: 200
+    accept-count: 100
