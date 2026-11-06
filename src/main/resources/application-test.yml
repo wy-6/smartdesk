@@ -15,6 +15,15 @@ spring:
     activate:
       on-profile: test
 
+  # Week5：测试库 schema 自动重建。
+  # 为什么自动化：以前建表要手工执行 schema-test.sql，一旦忘了加新表，
+  # 测试就会因为"表不存在"而失败，而失败原因离真正的问题（业务逻辑）很远。
+  # 现在每次测试上下文启动都重建一次，测试与建表脚本永远同步。
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema-test.sql
+      continue-on-error: false
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3307}/${MYSQL_DATABASE:smartdesk_test}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${MYSQL_USER:root}
@@ -54,6 +63,15 @@ smartdesk:
       max-tool-calls-per-round: 3
       duplicate-call-threshold: 2
       total-timeout: 10s
+  # Week5：RAG 全部走 mock embedding（离线确定性），测试不依赖任何真实服务
+  rag:
+    chunk-size: 400
+    chunk-overlap: 80
+    top-k: 5
+    similarity-threshold: 0.05
+    embedding:
+      provider: mock
+      dimensions: 256
 
 management:
   endpoint:
