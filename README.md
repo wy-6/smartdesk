@@ -7,15 +7,14 @@
 面向企业内部知识查询和任务管理的 AI 应用。用户可以上传文档、询问业务问题、
 查看答案引用来源，并通过自然语言查询或操作任务。
 
-**当前进度：第 1 周（Spring Boot 后端基础）、第 2 周（数据库 / Redis / 鉴权 / 工程化）、
-第 3 周（大模型 API / Prompt / 结构化输出 / SSE）已完成。**
+**当前进度：第 1–4 周已完成。**
 
 | 周次 | 主题 | 状态 |
 |------|------|------|
 | 第 1 周 | Spring Boot 后端基础、CRUD、统一响应与异常 | ✅ 已完成 |
 | 第 2 周 | 索引与分页、参数校验、Redis 缓存、JWT 鉴权、多环境配置、测试体系 | ✅ 已完成 |
 | 第 3 周 | Spring AI ChatClient、Prompt 工程、结构化输出、超时重试、SSE 流式、调用可观测 | ✅ 已完成 |
-| 第 4 周 | Tool Calling（让模型调用任务接口） | ⏳ 未开始 |
+| 第 4 周 | Tool Calling：工具注册、身份边界、写操作确认、循环刹车、多轮会话 | ✅ 已完成 |
 | 第 5 周 | RAG 知识库 | ⏳ 未开始 |
 
 ---
@@ -30,6 +29,7 @@
 | 数据库 | MySQL + MyBatis-Plus | 8.0 / 3.5.17 |
 | 缓存 | Redis（Spring Data Redis） | 5.0+ / 4.1.2 |
 | Agent | Spring AI（只引 `spring-ai-client-chat`） | 2.0.1 |
+| Tool Calling | 自建 `ToolRegistry` + `AgentLoop`（schema 生成 / 参数校验 / 四个刹车） | — |
 | 模型接入 | 自实现双 Provider：离线 mock / OpenAI 兼容协议（JDK HttpClient） | — |
 | 工程化 | Maven / Git / JUnit 5 / Mockito / Testcontainers / Docker | — |
 
@@ -186,7 +186,7 @@ curl -i http://localhost:18080/api/tasks
 
 ```bash
 mvn -B test
-# 期望：Tests run: 105, Failures: 0, Errors: 0
+# 期望：Tests run: 156, Failures: 0, Errors: 0
 ```
 
 测试分布：
@@ -205,12 +205,18 @@ mvn -B test
 | `PromptCasesTest` | 1（15 用例） | Prompt 回归评测 |
 | `AiControllerTest` | 11 | 401/400、504/422 映射、SSE 事件 |
 | `AiIntegrationTest` | 8 | 真实 MySQL、越权隔离、落库、SSE |
+| `ToolRegistryTest` | 13 | schema 不含身份字段、参数转换、异常脱敏（Week4） |
+| `TaskToolsTest` | 10 | 数据边界、写操作只生成草稿（Week4） |
+| `AgentLoopTest` | 8 | 四个刹车、截断补响应、工具失败不崩（Week4） |
+| `MockChatModelToolTest` | 8 | tool_calls 协议、路由优先级、结果总结（Week4） |
+| `AgentIntegrationTest` | 12 | 真实 MySQL：工具越权、确认幂等、会话隔离（Week4） |
 
 端到端验收脚本（均可重复运行）：
 
 ```bash
 python scripts/week2-acceptance.py   # 38 项：Day8–Day12
 python scripts/week3-acceptance.py   # 55 项：Day15–Day20（AI 全链路）
+python scripts/week4-acceptance.py   # 46 项：Day22–Day27（工具/确认/会话）
 ```
 
 ### 8. 持续集成（GitHub Actions）
@@ -265,6 +271,24 @@ python scripts/week3-acceptance.py   # 55 项：Day15–Day20（AI 全链路）
 | GET | `/api/ai/calls` | 我的调用记录（分页） |
 | GET | `/api/ai/calls/{id}` | 我的某条记录（非本人 → 404） |
 
+**Agent 接口（Week4，需鉴权）**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/ai/agent` | 无状态对话，模型可调用工具 |
+| GET | `/api/ai/tools` | 工具列表与 JSON Schema（可直接检查没有 `userId`） |
+| POST | `/api/ai/confirmations/{id}/confirm` | 确认草稿 → 落库（重复确认 404） |
+| DELETE | `/api/ai/confirmations/{id}` | 放弃草稿 |
+| GET | `/api/ai/tool-calls` | 工具调用审计（含 `privilegeStripped` 安全标记） |
+| POST | `/api/ai/sessions` | 创建会话 |
+| GET | `/api/ai/sessions` | 我的会话列表 |
+| GET | `/api/ai/sessions/{id}/messages` | 会话消息（非本人 → 404） |
+| POST | `/api/ai/sessions/{id}/messages` | 发消息，触发工具调用循环 |
+| DELETE | `/api/ai/sessions/{id}` | 删除会话（消息级联删除） |
+
+**写操作不会由模型直接执行**：`createTask` 只生成待确认草稿（Redis，TTL 5 分钟），
+用户调用 `/confirm` 后才落库。模型无法通过任何参数指定 `userId` —— 身份只来自 JWT。
+
 AI 能力默认走**离线 mock Provider**，不需要任何 API Key 就能跑通全链路：
 
 ```bash
@@ -312,11 +336,13 @@ AI_BASE_URL=https://api.deepseek.com/v1 AI_MODEL=deepseek-chat \
 ## 文档
 
 - [**第 1–2 周总结（交接文档）**](docs/week1-2-summary.md) —— 后端基础、验收数据、10 个坑
-- [**第 3 周总结（交接文档）**](docs/week3-summary.md) —— AI 能力交付、关键决策、验收数据、下一步 Tool Calling
+- [**第 4 周总结（交接文档）**](docs/week4-summary.md) —— Tool Calling 交付、三大关键决策、验收数据、下一步 RAG
+- [**第 3 周总结（交接文档）**](docs/week3-summary.md) —— AI 能力交付、关键决策、验收数据
 - [第一周执行手册](docs/week1-guide.md) —— 逐日任务、验收命令、面试题
 - [第二周执行手册](docs/week2-guide.md) —— Day8–Day14 逐日任务、10 个踩坑、必须能回答的面试题
 - [第二周复盘](docs/week2-retrospective.md) —— 包结构重构评估、三个关键技术决策、限时面试答题骨架
 - [第三周执行手册](docs/week3-guide.md) —— Day15–Day21 逐日任务、8 个踩坑、10 道 AI 应用面试题
+- [第四周执行手册](docs/week4-guide.md) —— Day22–Day28 逐日任务、Tool Calling 时序图、8 个踩坑、10 道面试题
 - [系统架构说明](docs/architecture.md) —— 一页纸架构图、请求链路、缓存与鉴权设计、AI 能力层、决策记录
 - [Docker 环境方案](docs/docker-setup.md) —— 本机障碍诊断、云端 CI 验证、已修复的 4 个容器级 bug
 - [接口文档](docs/api.md) —— 待补充
@@ -340,18 +366,24 @@ smartdesk/
 │   ├── week2-guide.md         # 第二周执行手册
 │   ├── week2-retrospective.md # 第二周复盘
 │   ├── week3-guide.md         # 第三周执行手册（AI 能力）
+│   ├── week4-guide.md         # 第四周执行手册（Tool Calling）
 │   ├── week1-2-summary.md     # 第 1–2 周交接
 │   ├── week3-summary.md       # 第 3 周交接
+│   ├── week4-summary.md       # 第 4 周交接
 │   ├── architecture.md        # 系统架构说明
 │   └── docker-setup.md        # Docker 环境方案（障碍诊断 + 三条路径）
 ├── scripts/
 │   ├── start-redis-dev.sh     # Redis dev 实例 start/stop/status/keys
 │   ├── week2-acceptance.py    # 38 项端到端验收
-│   └── week3-acceptance.py    # 55 项 AI 链路验收
+│   ├── week3-acceptance.py    # 55 项 AI 链路验收
+│   └── week4-acceptance.py    # 46 项工具调用验收
 └── src/
     ├── main/java/com/smartdesk/
     │   ├── SmartDeskApplication.java
     │   ├── ai/                # Week3：config/model/prompt/provider/service/controller
+│   │   ├── tool/          # Week4：ToolRegistry / TaskTools / AgentToolContext / SideEffect
+│   │   ├── entity/        # AiCallLog / AiToolCallLog / ChatSession / ChatMessage
+│   │   └── service/       # 含 AgentLoop / ConfirmationService / ChatSessionService
     │   ├── common/            # 统一响应、全局异常处理、健康检查、业务异常
     │   ├── config/            # Security / Cache / MyBatis-Plus / MetaObjectHandler
     │   ├── security/          # JwtService / JwtAuthenticationFilter / CurrentUser

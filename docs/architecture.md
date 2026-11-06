@@ -393,8 +393,8 @@ ChatModel（接口）
         → 不通过：把 errors 回喂模型修复（≤1 次）→ 仍不通过：422
 ```
 
-**模型不能直接产生副作用**：`/api/ai/task-draft` 只返回草稿，
-task 表写入必须等用户确认（第 6 周实现）。
+**模型不能直接产生副作用**：`/api/ai/task-draft` 只返回草稿。
+真正的落库链路在第 4 周落地：工具生成草稿 → 用户确认 → `POST /api/ai/confirmations/{id}/confirm`。
 
 ### 7.4 流式（SSE）
 
@@ -413,26 +413,103 @@ event: error  → {"code":"AI_TIMEOUT","message":"..."}
 否则异步二次派发会因为拿不到认证上下文而抛
 "Unable to handle the Spring Security Exception because the response is already committed"。
 
+### 7.5 工具调用与 Agent（Week4）
+
+```
+AgentController        POST /api/ai/agent | /confirmations/{id}/confirm | /tools | /tool-calls
+ChatSessionController  POST /api/ai/sessions | /sessions/{id}/messages
+   │  只做：取登录态 → 调 Service → 包响应
+   ▼
+AgentLoop（策略层）
+   │  循环：调模型 → 若有 tool_calls 则执行 → 回填 messages → 再调模型
+   │  刹车：轮数 4 / 单轮工具 5 / 总超时 60s / 重复调用熔断 3
+   ├── AiInvoker                复用第 3 周的超时+重试+抖动
+   ├── ToolExecutionService     指标（ai.tool.calls）+ 审计（ai_tool_call_log）
+   │       └── ToolRegistry     schema 生成 / 参数校验 / 上下文注入 / 反射调用
+   │               └── TaskTools  listTasks / getTask / countTasks / createTask
+   └── ConfirmationService      Redis 待确认草稿（TTL 5min，key 含 ownerId）
+   ▼
+ChatModel（ToolAwareChatModel）
+   ├── MockChatModel              剧本 [[TOOL:name:{...}]] + 自然语言路由 + 死循环注入
+   └── OpenAiCompatibleChatModel  tools 入参 / tool_calls 解析 / tool 消息回填
+```
+
+**Provider 只做协议翻译，不执行工具。** 这条分工是本周架构的核心：
+执行循环放在框架内部，轮数、截断、熔断就插不进去。
+
+#### 三层身份防线（Day24）
+
+| 层 | 做法 | 挡住什么 |
+|---|---|---|
+| 1. 物理上不存在 | `AgentToolContext` 是容器参数，schema 生成时跳过 | 模型无从填起 |
+| 2. 填了也没用 | 执行时剥离 `userId/ownerId/tenantId`，记审计与指标 | 注入尝试 |
+| 3. SQL 再兜一层 | `WHERE id=? AND owner_id=?` | 前两层漏了也不返回别人的行 |
+
+第 2 层选择"剥离"而非"拒绝"：小模型常把上下文原样复述进参数，拒绝会误伤；
+剥离无害，因为身份永远取登录态。但剥离必须留痕（`privilege_stripped`）。
+
+#### 写操作两阶段
+
+```
+createTask 工具 → 不写库，Redis 存草稿 → 返回 confirmationId
+用户点确认      → POST /confirmations/{id}/confirm
+                → Lua 原子 GET+DEL 取草稿 → 落库 → 返回任务
+```
+
+Lua 而非 `GETDEL`：开发环境 Redis 5.0.14 不支持 `GETDEL`（需 6.2+）。
+原子取删防的是"用户双击 → 一条草稿创建两个任务"。
+
+代价：取到草稿但落库失败时草稿已消失，需重新发起。
+取舍原则是**写操作宁可少做一次，不可多做一次**。
+
+#### 会话历史回灌
+
+只回灌最近 N 条 user/assistant **纯文本**，跳过 tool 消息。原因：
+旧的 `tool_call_id` 无法与新请求配对（OpenAI 协议直接 400）；
+即使不报错，旧工具结果是过期快照，会让模型产生更隐蔽的幻觉。
+需要数据时应该重新查一次。
+
+#### 错误码新增
+
+| 场景 | 错误码 | HTTP |
+|---|---|---|
+| 工具轮数超限 | `AI_TOOL_LOOP_EXCEEDED` | 422 |
+| 检测到重复调用 | `AI_TOOL_LOOP_DETECTED` | 422 |
+| 工具执行失败 | 不对外抛，作为 tool 结果回喂模型 | — |
+| 确认信息不存在/过期/别人的 | `NOT_FOUND` | 404 |
+
 ---
 
 ## 8. 测试策略
 
 ```
-src/test/java/com/smartdesk/                     合计 105 个
+src/test/java/com/smartdesk/                     合计 156 个
 ├── security/JwtServiceTest.java            7 个 —— JWT 签发/篡改/过期/异密钥
 ├── task/service/TaskServiceImplTest.java   13 个 —— Service 逻辑（mock Mapper）
 ├── task/controller/TaskControllerTest.java 14 个 —— Web 切片（mock Service）
 ├── user/service/UserServiceImplTest.java    7 个 —— BCrypt / 用户枚举防护
 ├── task/TaskIntegrationTest.java            9 个 —— 真实 MySQL 全链路
-└── ai/                                     55 个 —— Week3
+└── ai/                                     106 个 —— Week3 + Week4
     ├── service/TaskDraftParserTest.java     14 —— JSON 抠取与字段校验
     ├── provider/MockChatModelTest.java       7 —— 场景输出 / 故障注入 / 流式
+    ├── provider/MockChatModelToolTest.java   8 —— tool_calls 剧本/路由/结果总结（W4）
+    ├── tool/ToolRegistryTest.java           13 —— schema 不含身份字段、参数转换、异常脱敏（W4）
+    ├── tool/TaskToolsTest.java              10 —— 数据边界、写操作只生成草稿（W4）
+    ├── service/AgentLoopTest.java            8 —— 四个刹车、截断补响应、工具失败不崩（W4）
     ├── service/AiInvokerTest.java            5 —— 重试与退避
     ├── service/AiServiceImplTest.java        9 —— 四场景 + 修复重试 + 流式回调
     ├── service/PromptCasesTest.java          1 —— 15 条 Prompt 回归用例
     ├── controller/AiControllerTest.java     11 —— 401/400、504/422、SSE 事件
-    └── AiIntegrationTest.java                8 —— 真实 MySQL、越权、落库、SSE
+    ├── AiIntegrationTest.java                8 —— 真实 MySQL、越权、落库、SSE
+    └── AgentIntegrationTest.java            12 —— 工具越权、确认幂等、会话隔离（W4）
 ```
+
+Week4 的测试重心不在"功能对不对"，而在 **"坏事不会发生"**：
+
+- `verify(taskService, never()).create(any())` —— 证明 createTask 真的没写库
+- `assertThat(properties).doesNotContainKey("userId")` —— 证明 schema 里没有身份字段
+- 让"模型"传别人的 userId，断言回答里不含别人的任务标题
+- 用 `[[FAIL:LOOP]]` 注死循环，断言 422 且只调用了 2 次模型
 
 **分层原则**：
 
@@ -468,3 +545,8 @@ H2 会造成"本地测试全绿、生产一跑就炸"的假象。
 | 模型输出处理 | 解析 → 校验 → 修复重试（≤1）→ 422 | 防脏数据、防幻觉日期 | 多一次模型调用的成本 |
 | 任务草稿 | 只返回、不落库 | 模型不能直接产生副作用 | 需要用户二次确认 |
 | SSE 与安全 | 放行 ASYNC/ERROR 派发 | 异步派发没有 SecurityContext | 需要理解 Servlet 异步模型 |
+| 工具执行循环 | 自建 `AgentLoop`，不用 `DefaultToolCallingManager` | 轮数/截断/熔断/超时预算必须可控可测 | 多写约 200 行，需自己处理协议细节 |
+| 工具身份来源 | `AgentToolContext` 容器参数，schema 不含身份字段 | 模型可被注入诱导传任意 userId | 工具方法多一个参数 |
+| 有副作用的工具 | 只生成 Redis 草稿，用户确认后才落库 | Prompt 里的"确认"不是安全边界 | 多一次 HTTP 往返，草稿可能过期 |
+| 草稿取删 | Lua 原子 GET+DEL | 防双击导致一条草稿创建两个任务；兼容 Redis 5.0 | 落库失败后草稿不可重试 |
+| 会话历史回灌 | 最近 N 条 user/assistant 纯文本 | 旧 tool_call_id 无法配对会 400；旧结果是过期快照 | 模型不记得上一轮调过什么工具 |
