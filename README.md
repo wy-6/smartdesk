@@ -1,5 +1,7 @@
 # SmartDesk
 
+[![docker-verify](https://github.com/wy-6/smartdesk/actions/workflows/docker-verify.yml/badge.svg)](https://github.com/wy-6/smartdesk/actions/workflows/docker-verify.yml)
+
 > 企业知识库与任务智能助手 · Java 后端 · Spring AI · RAG · Tool Calling · 工程化部署
 
 面向企业内部知识查询和任务管理的 AI 应用。用户可以上传文档、询问业务问题、
@@ -198,6 +200,21 @@ mvn -B test
 ```bash
 python scripts/week2-acceptance.py
 ```
+
+### 8. 持续集成（GitHub Actions）
+
+`.github/workflows/docker-verify.yml` 在 GitHub 的 Linux runner 上做**真实的容器化验证**：
+
+1. 跑 41 个单元/切片测试（排除需要本地 MySQL 的 9 个集成测试）
+2. `docker build` 构建镜像 —— 验证 Dockerfile 每条指令
+3. `docker compose up -d --wait` —— 等 mysql / redis / app 三个容器**全部健康**
+4. 冒烟测试：健康检查 → 未登录 401 → 注册 201 → 登录拿 token → 建任务 → 查任务
+5. 优雅停机验证：`docker compose stop app` 必须在 10 秒内退出
+   （验证 ENTRYPOINT 里 `exec` 让 SIGTERM 直达 JVM）
+6. 无论成败都导出容器日志为 artifact
+
+> 为什么放在云端跑：本机 Docker Desktop 起不来（`wsl.exe` 被安全策略封禁），
+> 详见 [Docker 环境方案](docs/docker-setup.md)。CI 的绿勾等价于"镜像能构建、编排能起来、接口能跑通"。
 
 ---
 
