@@ -37,11 +37,17 @@ cd D:/a应聘/学习/workbuddy/smartdesk
 # 启动 MySQL dev 实例
 bash scripts/start-mysql-dev.sh start
 
-# 启动 Redis（Windows）
-cd "C:/Users/86181/.workbuddy/redis-win" && ./redis-server.exe redis.conf
-# 另开一个终端，或用 run_in_background 托管
+# 启动 Redis dev 实例
+bash scripts/start-redis-dev.sh start
+
+# 查状态 / 停掉
+bash scripts/start-redis-dev.sh status
+bash scripts/start-redis-dev.sh stop
 ```
 
+> 两个脚本都支持 `start` / `stop` / `status`；Redis 脚本另外有 `keys` 子命令，
+> 可以直接列出缓存里的 key，用来观察 `@Cacheable` 到底有没有生效。
+>
 > **Redis 为什么在 6380 不是 6379？** 本机可能已有别的 Redis 占用 6379，避开冲突。
 >
 > **Redis 二进制从哪来？** GitHub 的 release 下载被沙箱阻断了，最终从 Maven Central 的
@@ -51,7 +57,7 @@ cd "C:/Users/86181/.workbuddy/redis-win" && ./redis-server.exe redis.conf
 
 ---
 
-## 1. 本周踩过的 6 个坑（Boot 4 / Spring Data Redis 4 的 breaking change）
+## 1. 本周踩过的 10 个坑（Boot 4 / Spring Data Redis 4 的 breaking change）
 
 ### 坑 1：Spring Data Redis 4 的序列化器换名字了
 
@@ -128,6 +134,120 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 
 > `HandlerMethodValidationException` 是 Spring 6.1+ 的方法级参数校验异常，
 > 老的 `ConstraintViolationException` 已经不适用了。
+
+### 坑 7：Mapper 方法只声明不实现 → BindingException
+
+```java
+public interface AppUserMapper extends BaseMapper<AppUser> {
+    AppUser selectByUsername(String username);   // ← 只声明，没实现！
+}
+```
+
+**启动不报错，调用时才炸**：
+
+```
+BindingException: Invalid bound statement (not found):
+  com.smartdesk.user.mapper.AppUserMapper.selectByUsername
+```
+
+这是"静默失效"里最难查的一种 —— 编译通过、启动通过、单元测试也过
+（因为 Mapper 被 mock 了），只有真连数据库才暴露。
+
+修法：加 `@Select` 注解补上 SQL。
+
+```java
+@Select("SELECT id, username, password_hash, nickname, enabled, created_at, updated_at "
+      + "FROM app_user WHERE username = #{username}")
+AppUser selectByUsername(String username);
+```
+
+> **教训：Mapper 接口的每个自定义方法，都要有对应的实现（注解或 XML）。**
+
+### 坑 8：缺 MetaObjectHandler → created_at 插入 null
+
+`@TableField(fill = FieldFill.INSERT)` 只是**声明**，真正干活需要一个
+`MetaObjectHandler` Bean。项目里第 1 周没写这个 Bean。
+
+- `task` 表没报错 —— 因为建表时 `created_at DEFAULT CURRENT_TIMESTAMP`，数据库兜住了
+- `app_user` 表报错了 —— 因为 MyBatis-Plus 生成的 INSERT **显式包含 created_at 列并传 null**，
+  显式传 null 会覆盖数据库默认值：
+
+```
+SQLIntegrityConstraintViolationException: Column 'created_at' cannot be null
+```
+
+修法：新增 `config/MybatisMetaObjectHandler.java`：
+
+```java
+@Component
+public class MybatisMetaObjectHandler implements MetaObjectHandler {
+    @Override
+    public void insertFill(MetaObject metaObject) {
+        LocalDateTime now = LocalDateTime.now();
+        this.strictInsertFill(metaObject, "createdAt", LocalDateTime.class, now);
+        this.strictInsertFill(metaObject, "updatedAt", LocalDateTime.class, now);
+    }
+    @Override
+    public void updateFill(MetaObject metaObject) {
+        this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
+    }
+}
+```
+
+> **面试可讲**：MyBatis-Plus 的自动填充是"声明 + 实现"两步，只做声明不会有任何效果
+> —— 不报错，但也不生效。而数据库默认值和 ORM 自动填充是两套机制，
+> ORM 显式传 null 时会覆盖 DB 默认值。
+
+### 坑 9：`@WebMvcTest` 不加载普通 `@Configuration`
+
+```java
+@WebMvcTest(controllers = { TaskController.class, HealthController.class })
+@Import(SecurityConfig.class)     // ← 必须显式 import
+class TaskControllerTest { }
+```
+
+`@WebMvcTest` 的组件扫描范围很窄，普通的 `@Configuration` 类（比如 `SecurityConfig`）
+默认**不会**被扫到。不 import 的话：
+
+- Spring Security 的默认配置生效（表单登录 + httpBasic），不是我们设计的 JWT 方案
+- 我们精心写的 `authenticationEntryPoint`（统一 JSON 401 响应）根本没生效
+
+另外切片里还缺 `JwtService`（它是普通 `@Component`），必须补：
+
+```java
+@MockitoBean
+private JwtService jwtService;
+```
+
+> **规律**：切片测试报 "No qualifying bean" 时，先想"这个 Bean 属于哪个切片"，
+> 再决定是 mock 它还是把它 import 进切片。
+
+### 坑 10：Spring Data Redis 4 的 defaultTyping 默认关闭
+
+```java
+GenericJacksonJsonRedisSerializer.builder()
+        .enableDefaultTyping(BasicPolymorphicTypeValidator.builder()
+                .allowIfBaseType("com.smartdesk.")   // 安全护栏：只允许自己项目的类
+                .build())
+        .build();
+```
+
+**Jackson 2 时代 `defaultTyping` 默认是 true，Jackson 3 / Spring Data Redis 4 改成 false。**
+
+不开的后果 —— 缓存能写进去，但读出来炸：
+
+```
+ClassCastException: class java.util.LinkedHashMap cannot be cast to class com.smartdesk.task.entity.Task
+```
+
+因为没有类型信息，反序列化回来是 `LinkedHashMap`，调 `getTitle()` 直接失败。
+
+**为什么默认关闭？** 多态类型信息是反序列化漏洞的常见来源 ——
+攻击者若能往缓存写恶意 JSON，可能触发任意类实例化。Jackson 3 默认关掉是更安全的默认。
+所以开启时**必须配 `typeValidator`** 限定可反序列化的包范围。
+
+> **这个坑只有真正跑一遍缓存才暴露** —— 单元测试全绿，集成测试全绿，
+> 只有"读两次同一份缓存"的端到端验收才会炸。
 
 ---
 
@@ -375,8 +495,10 @@ curl http://localhost:18080/api/tasks/1
 - 为什么更新策略是"删缓存"而不是"更新缓存"？
 - 先删缓存还是先更新 DB？为什么？
 - `@Cacheable` 的 key 怎么设计？如果 key 少了一个过滤条件会怎样？
-  （答：会缓存污染 —— 用户 A 的数据被用户 B 读到。本项目 `getByIdForOwner`
-  刻意不走缓存就是为了避免这个）
+  （答：会缓存污染 —— 用户 A 的数据被用户 B 读到。本项目的做法是把
+  ownerId 放进 key：`taskDetail::{ownerId}:{id}`，这样既享受缓存性能又完全隔离。
+  踩过的弯路：第一版设计是"权限校验查询不走缓存"，结果缓存永远用不上，
+  Day10 验收直接失败 —— 这个弯路值得在面试时讲）
 - Redis 是单线程吗？为什么单线程还这么快？
   （答：Redis 6 起用多线程处理网络 IO，命令执行仍是单线程；
   单线程避免了锁竞争和上下文切换）
@@ -498,7 +620,7 @@ curl -s -X POST $B/api/auth/login -H "Content-Type: application/json" \
 - **怎么防止用户改 URL 里的 id 读取别人的数据？**
   （答：三层 —— ①ownerId 只从登录态取，绝不从请求参数取；
   ②SQL 层过滤 `WHERE id=? AND owner_id=?`，不是查出来再判断；
-  ③缓存 key 不含 ownerId 的方法刻意不走缓存，避免缓存污染）
+  ③缓存 key 带 ownerId（`taskDetail::{ownerId}:{id}`），杜绝缓存污染）
 - 401 vs 403 vs 404，跨用户访问该返回哪个？
   （答：本项目返回 404。返回 403 等于告诉攻击者"这个 id 确实存在"，
   是信息泄露。但注意：403 在"同一用户无权限访问自己可见的资源类型"时更合适）
@@ -659,16 +781,18 @@ mvn -B -P dev test       # dev profile 构建
 # 1) 干净启动（模拟面试现场）
 cd D:/a应聘/学习/workbuddy/smartdesk
 mvn -B clean package -DskipTests
-# 启动依赖
+
+# 启动依赖（两个脚本都有 start/stop/status 子命令）
 bash scripts/start-mysql-dev.sh start
-cd "C:/Users/86181/.workbuddy/redis-win" && ./redis-server.exe redis.conf
+bash scripts/start-redis-dev.sh start
+
 # 起服务
 MYSQL_PORT=3307 MYSQL_PASSWORD=smartdesk_root REDIS_PORT=6380 \
   java -jar target/smartdesk-0.1.0-SNAPSHOT.jar --server.port=18080
 
 # 2) 完整演示脚本
 #    注册 → 登录 → 创建任务 → 查询 → 筛选 → 更新 → 删除 → 越权测试
-#    （见 docs/week2-acceptance.sh）
+#    一键跑：python scripts/week2-acceptance.py   （36 项断言）
 ```
 
 ### 架构说明文档

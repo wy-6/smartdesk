@@ -183,13 +183,35 @@ EXPLAIN SELECT id, title FROM task WHERE status = 'TODO';
 
 ### 4.3 缓存污染的防范（关键设计）
 
-`getByIdForOwner(id, ownerId)` **刻意不走缓存**。
+**缓存 key 必须包含所有影响结果的条件。**
 
-原因：缓存 key 只有 id，而过滤条件包含 ownerId。若共用缓存，
-用户 A 查 task#1 会把结果缓存起来，用户 B 再查 task#1 就会命中缓存拿到 A 的数据。
+`getByIdForOwner(id, ownerId)` 的缓存 key 是 `taskDetail::{ownerId}:{id}`：
 
-另一种解法是 key 带上 ownerId（`key = "#id + ':' + #ownerId"`），
-但会让缓存条目数翻倍。本项目选择"权限校验查询不走缓存"，正确性优先。
+| 用户 | 查询 | 缓存 key | 结果 |
+|------|------|---------|------|
+| alice (id=1) | task#1 | `taskDetail::1:1` | 缓存 alice 的视角 |
+| bob (id=2) | task#1 | `taskDetail::2:1` | **不同的 key**，命中不了 alice 的缓存 |
+
+如果只用 `id` 做 key，用户 A 查 task#1 会把结果缓存起来，
+用户 B 再查 task#1 就会**命中缓存拿到 A 的数据** —— 这就是缓存污染，
+是数据隔离场景下最危险的缓存 bug。
+
+**这里踩过一个弯路，值得记录：**
+
+第一版设计是"权限校验的查询不走缓存"，理由是怕污染。但这导致
+`getById`（唯一带缓存的方法）**从来不会被调用** —— 所有对外接口都走
+`getByIdForOwner`，缓存形同虚设，Day10 验收直接失败。
+
+正确解法就是**把 ownerId 放进 key**：既享受缓存性能，又完全隔离。
+
+> 面试标准答法：「缓存 key 的维度必须覆盖所有影响返回值的条件。
+> 少一个维度，就等于允许不同维度共享同一份结果。」
+
+**写操作清缓存用 `allEntries = true`**：
+
+因为 key 里带了 ownerId，同一任务在不同用户下是不同的 key。
+而 update/delete 时无法枚举所有 ownerId 变体，所以清空整个 `taskDetail`
+缓存 —— 简单且绝对安全。高并发系统会用 Redis SCAN 按模式精确删除。
 
 ---
 
@@ -219,7 +241,7 @@ EXPLAIN SELECT id, title FROM task WHERE status = 'TODO';
 |----|------|------|
 | Controller | ownerId 只从 `CurrentUser.getUserId()` 取，**绝不从请求参数取** | 杜绝"改参数就能看别人数据" |
 | Service | SQL 层 `WHERE id = ? AND owner_id = ?`，不是查出来再判断 | 别人的数据根本不会发到应用层 |
-| 缓存 | 权限校验查询不走缓存 | 避免缓存污染泄露 |
+| 缓存 | 缓存 key 含 ownerId（`taskDetail::{ownerId}:{id}`） | 兼顾缓存性能与数据隔离 |
 
 ### 5.4 状态码选择
 
