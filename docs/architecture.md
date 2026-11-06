@@ -1,8 +1,8 @@
 # SmartDesk 系统架构说明
 
-> 一页纸讲清楚 SmartDesk 后端的架构。第 2 周结束时的核心产出。
+> 一页纸讲清楚 SmartDesk 后端的架构。第 2 周建立，第 3 周补上 AI 能力层。
 >
-> **面试用法**：讲项目时按这个顺序讲 —— 分层 → 请求链路 → 数据模型 → 缓存 → 认证 → 部署。
+> **面试用法**：讲项目时按这个顺序讲 —— 分层 → 请求链路 → 数据模型 → 缓存 → 认证 → AI 层 → 部署。
 
 ---
 
@@ -43,11 +43,13 @@
 
 | 组件 | 位置 | 职责 |
 |------|------|------|
-| 全局异常处理 | `common/GlobalExceptionHandler` | 把异常转成统一 JSON + 正确状态码 |
+| 全局异常处理 | `common/GlobalExceptionHandler` | 把异常转成统一 JSON + 正确状态码（含 AI 错误码 → 504/429/503/422） |
 | 统一响应体 | `common/ApiResponse` | 前端只需处理一种格式 |
-| 安全配置 | `config/SecurityConfig` | 过滤器链、URL 授权规则、401/403 响应 |
+| 安全配置 | `config/SecurityConfig` | 过滤器链、URL 授权规则、401/403 响应、ASYNC 派发放行 |
 | 缓存配置 | `config/CacheConfig` | 序列化、TTL、防雪崩/击穿 |
 | 当前用户 | `security/CurrentUser` | 从 SecurityContext 读登录态 |
+| AI 装配 | `ai/config/AiConfig` | 按 `AI_PROVIDER` 注入 Mock 或 OpenAI 兼容模型 |
+| AI 治理 | `ai/service/AiInvoker` + `AiMetrics` | 超时重试、退避、调用量与 Token 指标 |
 
 **核心原则**：依赖方向永远是**单向向下**（Controller → Service → Mapper）。
 Service 不知道 HTTP 的存在，Mapper 不知道业务的存在。
@@ -123,6 +125,17 @@ app_user                          task
 └─ updated_at                     ├─ due_date
                                   ├─ created_at
                                   └─ updated_at
+
+ai_call_log                       （Week3 新增）
+├─ id            PK
+├─ owner_id      FK → app_user.id  ← 数据隔离
+├─ trace_id                        ← 一次业务操作一个，修复重试会重复
+├─ scene                          (chat/summary/classify/task_draft)
+├─ provider / model
+├─ prompt_tokens / completion_tokens / total_tokens
+├─ latency_ms / attempts
+├─ success / error_code / error_message
+└─ created_at
 ```
 
 ### 3.2 索引设计（Day8）
@@ -132,6 +145,8 @@ app_user                          task
 | `idx_owner_status` | (owner_id, status) | 我的待办 / 我的已完成 |
 | `idx_owner_due` | (owner_id, due_date) | 查我近期的任务、找出已过期 |
 | `idx_owner_priority` | (owner_id, priority) | 我的任务按优先级排序 |
+| `idx_owner_created` | (owner_id, created_at) | AI 调用记录：我的、按时间倒序分页 |
+| `idx_trace` | (trace_id) | 按 traceId 还原一次请求的整条模型调用链 |
 
 **设计原则**：
 1. 所有索引以 `owner_id` 开头 —— 它是每个查询的必带条件，也是数据隔离的根基
@@ -151,6 +166,23 @@ EXPLAIN SELECT id, title FROM task WHERE status = 'TODO';
 -- key  = NULL               ← 索引失效（全表扫描）
 -- type = ALL
 ```
+
+**Week3 新增的对照实验（同一个查询，两个数据量）**：
+
+```sql
+EXPLAIN SELECT id, trace_id, scene FROM ai_call_log
+ WHERE owner_id = 1 ORDER BY created_at DESC LIMIT 20;
+
+-- 28 行时：type=ALL, key=NULL, Extra=Using where; Using filesort
+--          ↑ 表太小，优化器主动选全表扫描，这不是索引失效
+
+-- 插入 5000 行并 ANALYZE TABLE 之后：
+-- type=index, key=idx_owner_created, rows=20, Extra=Using where; Backward index scan
+--          ↑ 索引同时满足"过滤 owner_id"和"按 created_at 倒序"，没有额外 filesort
+```
+
+> **面试要点**：讲索引必须给数据量条件。"我加了索引所以快"不是证据，
+> 优化器在小表上会毫不犹豫地选全表扫描。
 
 ---
 
@@ -312,15 +344,94 @@ redis (6380)  ──┘
 
 ---
 
-## 7. 测试策略
+## 7. AI 能力层（Week3）
 
 ```
-src/test/java/com/smartdesk/
+AiController  ── POST /api/ai/chat | /chat/stream | /summarize | /classify | /task-draft
+   │  只做：取登录态 → 调 Service → 包响应（任何 Prompt 都不在这里）
+   ▼
+AiService(Impl)
+   │  ① 组装 Prompt（PromptTemplates，版本化）
+   │  ② ChatClient 调用（经 AiInvoker：超时 + 有上限的重试 + 抖动退避）
+   │  ③ 取文本 / 解析 JSON（JsonContents 剥围栏+截取）
+   │  ④ 校验（TaskDraftParser：字段、类型、范围、日期）
+   │  ⑤ 记录（ai_call_log）+ 指标（ai.calls / ai.latency / ai.tokens）
+   ▼
+ChatClient（Spring AI 门面）
+   │
+ChatModel（接口）
+   ├── MockChatModel              离线规则引擎 + 故障注入（默认）
+   └── OpenAiCompatibleChatModel  OpenAI 兼容协议
+            │
+      OpenAiChatTransport  JDK HttpClient：同步 + SSE 流式，两层超时
+```
+
+### 7.1 模型无关的边界
+
+依赖方向是单向的：`Controller → AiService → ChatClient → ChatModel`。
+换模型只换 Bean（`AI_PROVIDER=mock|openai`），业务代码零改动。
+
+之所以只引 `spring-ai-client-chat` 而不引厂商 starter：starter 启动即校验 API Key，
+会破坏"默认离线可跑"和"CI 不烧钱"，也把业务焊死在某个 SDK 上。
+
+### 7.2 错误码映射
+
+| 场景 | 错误码 | HTTP | 可重试 |
+|---|---|---|---|
+| 模型超时 | `AI_TIMEOUT` | 504 | ✅ |
+| 上游限流 | `AI_RATE_LIMITED` | 429 | ✅ |
+| 上游 5xx | `AI_UPSTREAM_ERROR` | 503 | ✅ |
+| 输出不合法 | `AI_INVALID_OUTPUT` | 422 | ❌ |
+| 请求参数错 | `AI_INVALID_REQUEST` | 400 | ❌ |
+| 未配置/鉴权失败 | `AI_NOT_CONFIGURED` | 503 | ❌ |
+
+### 7.3 结构化输出的四步链路
+
+```
+模型文本 → 剥 ```json 围栏 + 截取 {} → 宽松 DTO 反序列化 → 逐字段校验
+        → 通过：返回草稿（不落库）
+        → 不通过：把 errors 回喂模型修复（≤1 次）→ 仍不通过：422
+```
+
+**模型不能直接产生副作用**：`/api/ai/task-draft` 只返回草稿，
+task 表写入必须等用户确认（第 6 周实现）。
+
+### 7.4 流式（SSE）
+
+```
+event: delta  → {"text":"..."}
+event: done   → {"content":"...","meta":{traceId,tokens,latencyMs}}
+event: error  → {"code":"AI_TIMEOUT","message":"..."}
+```
+
+三个约束：
+1. userId 必须在进入异步前取（异步线程没有 SecurityContext）
+2. 流开始后不能改状态码，错误只能发事件
+3. 阻塞读放在 `boundedElastic`，不占用 Tomcat 工作线程
+
+另外 `SecurityConfig` 放行 `DispatcherType.ASYNC/ERROR` ——
+否则异步二次派发会因为拿不到认证上下文而抛
+"Unable to handle the Spring Security Exception because the response is already committed"。
+
+---
+
+## 8. 测试策略
+
+```
+src/test/java/com/smartdesk/                     合计 105 个
 ├── security/JwtServiceTest.java            7 个 —— JWT 签发/篡改/过期/异密钥
 ├── task/service/TaskServiceImplTest.java   13 个 —— Service 逻辑（mock Mapper）
 ├── task/controller/TaskControllerTest.java 14 个 —— Web 切片（mock Service）
 ├── user/service/UserServiceImplTest.java    7 个 —— BCrypt / 用户枚举防护
-└── task/TaskIntegrationTest.java            8 个 —— 真实 MySQL 全链路
+├── task/TaskIntegrationTest.java            9 个 —— 真实 MySQL 全链路
+└── ai/                                     55 个 —— Week3
+    ├── service/TaskDraftParserTest.java     14 —— JSON 抠取与字段校验
+    ├── provider/MockChatModelTest.java       7 —— 场景输出 / 故障注入 / 流式
+    ├── service/AiInvokerTest.java            5 —— 重试与退避
+    ├── service/AiServiceImplTest.java        9 —— 四场景 + 修复重试 + 流式回调
+    ├── service/PromptCasesTest.java          1 —— 15 条 Prompt 回归用例
+    ├── controller/AiControllerTest.java     11 —— 401/400、504/422、SSE 事件
+    └── AiIntegrationTest.java                8 —— 真实 MySQL、越权、落库、SSE
 ```
 
 **分层原则**：
@@ -340,7 +451,7 @@ H2 会造成"本地测试全绿、生产一跑就炸"的假象。
 
 ---
 
-## 8. 关键技术决策记录
+## 9. 关键技术决策记录
 
 | 决策 | 选择 | 理由 | 代价 |
 |------|------|------|------|
@@ -352,3 +463,8 @@ H2 会造成"本地测试全绿、生产一跑就炸"的假象。
 | ownerId 传递 | Controller 显式传给 Service | Service 不与 Security 耦合，单元测试简单 | 方法签名啰嗦 |
 | 跨用户访问 | 返回 404 而非 403 | 不泄露资源存在性 | 排障时不如 403 直观 |
 | 测试数据库 | 真实 MySQL | 避免 H2 造成假绿 | 测试依赖本地 MySQL |
+| AI 依赖引入方式 | 只引 `spring-ai-client-chat` | 不强制 API Key，默认离线可跑；模型可替换 | 要自己实现 ChatModel 适配 |
+| 默认模型 Provider | `mock`（规则引擎） | 测试可重复、CI 不烧钱、故障可注入 | 需要维护 mock 的场景规则 |
+| 模型输出处理 | 解析 → 校验 → 修复重试（≤1）→ 422 | 防脏数据、防幻觉日期 | 多一次模型调用的成本 |
+| 任务草稿 | 只返回、不落库 | 模型不能直接产生副作用 | 需要用户二次确认 |
+| SSE 与安全 | 放行 ASYNC/ERROR 派发 | 异步派发没有 SecurityContext | 需要理解 Servlet 异步模型 |
