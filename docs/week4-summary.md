@@ -131,7 +131,7 @@ public Object listTasks(String status, AgentToolContext context)
 
 | # | 事项 | 影响 | 建议做法 |
 |---|---|---|---|
-| 1 | 真实模型仍未实测 | 中 | 有 Key 后跑一遍 `agent` / `sessions` / 确认链路。重点看真实 `tool_calls` 的 `arguments` 格式差异 |
+| 1 | ~~真实模型仍未实测~~ **已实测（2026-11-06，DeepSeek）** | 已闭环 | `scripts/real-model-smoke.py` 14/14 通过：真实 `tool_calls` 协议往返、结构化输出（category 落枚举、摘要守约束）、两阶段确认全链路、重复确认 404。`arguments` 格式与 Mock 假设一致 |
 
 **真实 Key 的安全接入与验证路径（已备好工具）**：
 

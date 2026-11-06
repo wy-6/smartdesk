@@ -90,10 +90,22 @@ def register_and_login():
 
 
 def seed_tasks(token):
-    """直接走 REST 建两条任务，给模型的工具返回里埋进唯一标记。"""
+    """直接走 REST 建两条任务，给模型的工具返回里埋进唯一标记。
+
+    教训（2026-11-06 实测）：创建任务必须带 dueDate（必填），
+    且埋数据失败必须立刻报错退出——否则后面所有断言都在验一个空库，
+    模型如实回答"没有任务"，测试却报 FAIL，浪费时间排查错误的方向。
+    """
+    from datetime import timedelta
+    due = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
     for title in (f"给{MARK}任务A准备材料", f"复核{MARK}任务B的账单"):
-        call("POST", "/api/tasks",
-             {"title": title, "description": "smoke seed", "priority": 2}, token=token)
+        status, body = call("POST", "/api/tasks",
+                            {"title": title, "description": "smoke seed",
+                             "priority": 2, "dueDate": due}, token=token)
+        if status not in (200, 201):
+            print(f"  埋数据失败（后面的断言将全部失真）: {status} {body}")
+            global failed
+            failed += 1
 
 
 def tool_names(result):
